@@ -168,8 +168,3 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 启用缓存：从 GitHub Actions 缓存拉取，推送到缓存
-          cache-from: type=gha
-          cache-to: type=gha,mode=max  # mode=max 保留所有层供下次复用
-          # 可选：添加 Buildx 构建器配置，优化 arm64 性能
-          builder: ${{ steps.buildx.outputs.name }}
