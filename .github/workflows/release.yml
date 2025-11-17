@@ -171,7 +171,7 @@ jobs:
         run: |
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
-            new_image=registry-intl.cn-shanghai.aliyuncs.com/bchub/${image##*/}
+            new_image=ghcr.io/emqxecp/${image##*/}
             docker tag $image $new_image
             echo "$new_image" >> $GITHUB_OUTPUT
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
@@ -179,9 +179,9 @@ jobs:
       - uses: ./.github/actions/push-images-to-acr
         if: github.ref_type == 'tag'
         with:
-          acr-login-server: registry-intl.cn-shanghai.aliyuncs.com
-          acr-username: ${{ secrets.REGISTRY_USERNAME }}
-          acr-password: ${{ secrets.REGISTRY_PASSWORD }}
+          acr-login-server: ghcr.io
+          acr-username: ${{ github.actor }}
+          acr-password: ${{ secrets.EMQXECP_GIT_TOKEN }}
           tags: ${{ steps.retag-dependency-images.outputs.images }}
           skip-login: 'true'
       - name: Upload Trivy report

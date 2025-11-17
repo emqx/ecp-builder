@@ -1,0 +1,41 @@
+name: Push images to OSS
+description: Save images as .tar.gz and push to OSS (Aliyun Object Storage Service)
+
+inputs:
+  endpoint:
+    description: "The endpoint of the OSS"
+    required: true
+  access-key-id:
+    description: "The access key id for the OSS"
+    required: true
+  access-key-secret:
+    description: "The access key secret for the OSS"
+    required: true
+  tags:
+    description: "Tags in multi-line strings"
+    required: true
+  bucket:
+    description: "The bucket name"
+    required: true
+  download-ossutil:
+    description: "Whether to download ossutil"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: yizhoumo/setup-ossutil@v2
+      if: ${{ inputs.download-ossutil == 'true' }}
+      with:
+        ossutil-version: '1.7.18'
+        endpoint: ${{ inputs.endpoint }}
+        access-key-id: ${{ inputs.access-key-id }}
+        access-key-secret: ${{ inputs.access-key-secret }}
+    - name: Save images and push to aliyun oss
+      shell: bash
+      run: |
+        while read -r tag; do
+          docker save "$tag" | gzip > "${tag//\//-}.tar.gz"
+          ossutil cp -f "${tag//\//-}.tar.gz" "oss://${{ inputs.bucket }}/${tag//\//-}.tar.gz"
+        done <<< "${{ inputs.tags }}"
