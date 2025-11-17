@@ -1,0 +1,400 @@
+name: Release
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  docker:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Wait for the build ecp-ai workflow to complete
+        uses: lewagon/wait-on-check-action@v1.4.0
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-name: 'build ecp-ai'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+
+      - name: Wait for the build trace-exchanger workflow to complete
+        uses: lewagon/wait-on-check-action@v1.4.0
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-name: 'build trace-exchanger'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+
+      - name: Wait for the build emqxee-agent workflow to complete
+        uses: lewagon/wait-on-check-action@v1.4.0
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-regexp: '^build emqxee-agent.*'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+          
+      # GitHub App token 有效期固定为1小时，无法修改
+      # 如果工作流运行时间超过1小时，需要在使用时重新生成token
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # skip-token-revoke: true  # 可选：阻止在job完成时自动撤销token
+          repositories: |
+            gotools
+            emqx-bc-iaas-hand
+            neuronex-operator
+            EMQX-Business-Critical
+            emqx-bc-web
+            gorm
+            ecp-ai
+            emqx-bc-emqxee-agent
+
+      - name: Private repo access
+        run: |
+          git config --global url."https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          echo "GOPRIVATE=github.com/emqx/*" >> $GITHUB_ENV
+          echo "GONOPROXY=github.com/emqx/*" >> $GITHUB_ENV
+          echo "GONOSUMDB=github.com/emqx/*" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+      - name: Docker image tag
+        id: image
+        run: |
+          tag="${GITHUB_REF##*/}"
+          if [[ ${{ github.event_name }} == "pull_request" ]]; then
+            fromBranch="${{ github.head_ref }}"
+            if [[ "${fromBranch}" == "build/"* ]]; then
+              tag="${fromBranch#build/}"
+            else
+              tag="${{ github.actor }}"
+            fi
+          fi
+          if [[ "${{github.event_name}}" == "push" ]] && [[ ${{ github.ref_name }} == "develop" ]]; then
+              tag="dev-latest"
+          fi
+          echo "tag=${tag}" >> $GITHUB_OUTPUT
+          echo 'registry="ghcr.io/emqxecp/ecp-main"' >> $GITHUB_OUTPUT
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: |
+            ${{ steps.image.outputs.registry }}
+          tags: |
+            type=raw,value=${{ steps.image.outputs.tag }},enabled=${{ github.ref_type != 'tag' }}
+            type=semver,pattern={{version}},enabled=${{ github.ref_type == 'tag' }}
+            type=semver,pattern={{major}}.{{minor}},enabled=${{ github.ref_type == 'tag' }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_TOKEN=${{ steps.generate-token.outputs.token }}
+          file: build/docker_build/Dockerfile
+      - name: Manual Trivy Setup
+        uses: aquasecurity/setup-trivy@v0.2.0
+        with:
+          cache: true
+          version: v0.57.1
+      - name: Run Trivy scanner of ecp-main on tag
+        if: github.ref_type == 'tag'
+        run: |
+          trivy image --severity CRITICAL,HIGH `echo ${{ steps.meta.outputs.tags }} | tail -n1` --output ./trivy-report.txt
+
+
+
+      - name: Check Docker Compose command version
+        working-directory: deployments/docker-compose
+        run: |
+          echo "$GITHUB_REF"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            CURRENT_TAG="${GITHUB_REF##*/}"
+            # 新增正则校验
+            if ! echo "$CURRENT_TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?(-(alpha|beta|rc)\.[0-9]+)?$'; then
+              echo "Invalid tag format: $CURRENT_TAG"
+              echo "Tag must match pattern: [major].[minor].[patch](-customer)(-[prerelease].[number])"
+              exit 1
+            fi
+
+            # 自动更新版本
+            sed -i "s#ci-auto-use-tag-instead#${CURRENT_TAG}#g" emqx_ecp_ctl
+          else
+            echo "Not triggered by tag, skipping"
+          fi
+      - name: Get dependency images
+        id: get-dependency-images
+        if: github.ref_type == 'tag'
+        run: |
+          cd deployments/docker-compose
+          echo 'images<<EOF' >> $GITHUB_OUTPUT
+          while read -r image; do
+            echo "$image" >> $GITHUB_OUTPUT
+          done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | grep -v 'ecp-main' | tail -n +3)"
+          echo 'EOF' >> $GITHUB_OUTPUT
+      - name: Download dependency images
+        if: github.ref_type == 'tag'
+        run: |
+          while read -r image; do
+            docker pull $image
+          done <<< "${{ steps.get-dependency-images.outputs.images }}"
+      - name: Run Trivy scanner of dependency images
+        if: github.ref_type == 'tag'
+        run: |
+          set -xv
+          echo "" > ./trivy-report.txt
+          while read -r image; do
+            trivy image --severity CRITICAL,HIGH $image --output ./trivy-report-temp.txt
+            echo "\n\n\n $image trivy report:\n" >> ./trivy-report.txt
+            cat ./trivy-report-temp.txt >> ./trivy-report.txt
+          done <<< "${{ steps.get-dependency-images.outputs.images }}"
+      - name: Retag dependency images
+        id: retag-dependency-images
+        if: github.ref_type == 'tag'
+        run: |
+          echo 'images<<EOF' >> $GITHUB_OUTPUT
+          while read -r image; do
+            new_image=registry-intl.cn-shanghai.aliyuncs.com/bchub/${image##*/}
+            docker tag $image $new_image
+            echo "$new_image" >> $GITHUB_OUTPUT
+          done <<< "${{ steps.get-dependency-images.outputs.images }}"
+          echo 'EOF' >> $GITHUB_OUTPUT
+      - uses: ./.github/actions/push-images-to-acr
+        if: github.ref_type == 'tag'
+        with:
+          acr-login-server: registry-intl.cn-shanghai.aliyuncs.com
+          acr-username: ${{ secrets.REGISTRY_USERNAME }}
+          acr-password: ${{ secrets.REGISTRY_PASSWORD }}
+          tags: ${{ steps.retag-dependency-images.outputs.images }}
+          skip-login: 'true'
+      - name: Upload Trivy report
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports
+          path: trivy-report.txt
+          if-no-files-found: error
+
+
+  build-macos:
+    if: github.ref_type == 'tag'
+    strategy:
+      matrix:
+        os:
+          - macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            gotools
+            emqx-bc-iaas-hand
+            neuronex-operator
+            EMQX-Business-Critical
+            emqx-bc-web
+            gorm
+            ecp-ai
+
+      - name: Private repo access
+        run: |
+          git config --global url."https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          echo "GOPRIVATE=github.com/emqx/*" >> $GITHUB_ENV
+          echo "GONOPROXY=github.com/emqx/*" >> $GITHUB_ENV
+          echo "GONOSUMDB=github.com/emqx/*" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+          ref: ${{ github.ref }}
+
+
+      - name: Set up Go
+        id: go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.22.0'
+
+      # package
+      - name: Package
+        env:
+          GIT_TOKEN: ${{ steps.generate-token.outputs.token }}
+          DASHBOARD_VERSION: ${{ github.ref_name }}
+          ALL_IN_ONE: true
+        run: make pkg_all_in_one
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.os }}
+          path: |
+            emqx-bc-service-in-one-${{ github.ref_name }}*
+          if-no-files-found: error 
+
+
+  build-ubuntu:
+    if: github.ref_type == 'tag'
+    strategy:
+      matrix:
+        os:
+          - ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            gotools
+            emqx-bc-iaas-hand
+            neuronex-operator
+            EMQX-Business-Critical
+            emqx-bc-web
+            gorm
+            ecp-ai
+
+      - name: Private repo access
+        run: |
+          git config --global url."https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          echo "GOPRIVATE=github.com/emqx/*" >> $GITHUB_ENV
+          echo "GONOPROXY=github.com/emqx/*" >> $GITHUB_ENV
+          echo "GONOSUMDB=github.com/emqx/*" >> $GITHUB_ENV
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+
+      - name: Set up Go
+        id: go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.22.0'
+
+      # package
+      - name: Package
+        env:
+          GIT_TOKEN: ${{ steps.generate-token.outputs.token }}
+          DASHBOARD_VERSION: ${{ github.ref_name }}
+          ALL_IN_ONE: true
+        run: make pkg_all_in_one
+      
+      - name: Check Docker Compose command version
+        working-directory: deployments/docker-compose
+        run: |
+          CURRENT_TAG="${GITHUB_REF##*/}"
+          
+          # 新增正则校验
+          if ! echo "$CURRENT_TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?(-(alpha|beta|rc)\.[0-9]+)?$'; then
+            echo "Invalid tag format: $CURRENT_TAG"
+            echo "Tag must match pattern: [major].[minor].[patch](-customer)(-[prerelease].[number])"
+            exit 1
+          fi
+
+          # 自动更新版本
+          # 判断 sed 版本，根据不同版本执行不同命令
+          if sed --version 2>/dev/null | grep -q GNU; then
+              # GNU 版本的 sed
+              sed -i "s#ci-auto-use-tag-instead#${CURRENT_TAG}#g" emqx_ecp_ctl
+          else
+              # BSD 版本的 sed
+              sed -i '' "s#ci-auto-use-tag-instead#${CURRENT_TAG}#g" emqx_ecp_ctl
+          fi
+
+      - name: Package of docker compose
+        working-directory: deployments
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
+          tar \
+            --exclude="docker-compose/.gitingore" \
+            --exclude="docker-compose/configs" \
+            --exclude="docker-compose/datavolumes" \
+            -zcvf emqx-ecp-docker-compose-installer-${version}.tar.gz \
+            docker-compose
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.os }}
+          path: |
+            deployments/emqx-ecp-docker-compose-installer*
+            emqx-bc-service-in-one-${{ github.ref_name }}*
+          if-no-files-found: error 
+
+  release:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    needs:
+      - build-ubuntu
+      - build-macos
+      - docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: packages
+      - uses: actions/download-artifact@v4
+        if: github.ref_type == 'tag'
+        with:
+          name: image-packages
+          path: packages
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: trivy-reports
+          merge-multiple: true
+          path: trivy-reports
+      - name: Check Docker Compose command version
+        working-directory: deployments/docker-compose
+        run: |
+          CURRENT_TAG="${GITHUB_REF##*/}"
+          
+          # 新增正则校验
+          if ! echo "$CURRENT_TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+)?(-(alpha|beta|rc)\.[0-9]+)?$'; then
+            echo "Invalid tag format: $CURRENT_TAG"
+            echo "Tag must match pattern: [major].[minor].[patch](-customer)(-[prerelease].[number])"
+            exit 1
+          fi
+
+          # 自动更新版本
+          sed -i "s#ci-auto-use-tag-instead#${CURRENT_TAG}#g" emqx_ecp_ctl
+      - name: Check pre release
+        id: prerelease
+        run: |
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+      - uses: softprops/action-gh-release@v1
+        with:
+          ## When you use the repository's GITHUB_TOKEN to perform tasks,
+          ## events triggered by the GITHUB_TOKEN, with the exception of workflow_dispatch and repository_dispatch,
+          ## will not create a new workflow run.
+          ## This prevents you from accidentally creating recursive workflow runs.
+          ## More info: https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+          token: ${{ github.token }}
+          name: ECP application ${{ github.ref_name }} Released
+          body: ECP application ${{ github.ref_name }} has been released
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            packages/**
+            trivy-reports/**

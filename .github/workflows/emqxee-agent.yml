@@ -1,0 +1,211 @@
+name: build emqxee-agent
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  new-tag:
+    name: new-tag
+    runs-on: ubuntu-22.04-arm
+    outputs:
+      skip_build: ${{ steps.check_tag.outputs.skip_build }}
+      previous_tag: ${{ steps.check_tag.outputs.previous_tag }}
+      current_tag: ${{ steps.check_tag.outputs.current_tag }}
+
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            emqx-bc-emqxee-agent
+            EMQX-Business-Critical
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.generate-token.outputs.token }}
+      # 拉取 https://github.com/emqx/emqx-bc-emqxee-agent 仓库
+      - uses: actions/checkout@v4
+        with:
+          repository: emqx/emqx-bc-emqxee-agent
+          ref: develop
+          path: emqx-bc-emqxee-agent
+          token: ${{ steps.generate-token.outputs.token }}
+          fetch-depth: 0  # 获取完整的 Git 历史记录
+          fetch-tags: true  # 确保获取所有 tags
+      - name: Add new tag to emqxee-agent
+        working-directory: emqx-bc-emqxee-agent
+        id: check_tag
+        run: |
+          set -euo pipefail
+          # 获取之前最新的 tag
+          previous_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "latest tag: $previous_tag"
+          echo "previous_tag=$previous_tag" >> $GITHUB_OUTPUT 
+          
+          # 如果存在 tag，获取该 tag 的 commit ID
+          if [ -n "$previous_tag" ]; then
+            previous_tag_commit=$(git rev-parse $previous_tag)
+            echo "latest tag commit: $previous_tag_commit"
+          else
+            echo "No tags found in repository"
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          fi
+
+          git config user.name ${{ github.actor }}
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          current_tag=${GITHUB_REF#refs/tags/}
+          echo "current tag: $current_tag"
+          git tag -d $current_tag || true
+          git push --delete origin $current_tag || true
+          git tag $current_tag
+          git push origin $current_tag
+
+          echo "current_tag=$current_tag" >> $GITHUB_OUTPUT 
+          # 获取当前 tag 的 commit ID
+          current_tag_commit=$(git rev-parse $current_tag)
+
+          if [ -n "$previous_tag" ]; then         
+            if [ "$current_tag_commit" = "$previous_tag_commit" ]; then
+              echo "skip_build=true" >> $GITHUB_OUTPUT
+              echo "Current tag commit matches previous tag commit, will reuse existing image"
+            else
+              echo "skip_build=false" >> $GITHUB_OUTPUT
+              echo "Current tag commit differs from previous tag commit, will build new image"
+            fi
+          fi
+
+  build-image:
+    name: build emqxee-agent
+    runs-on: ubuntu-22.04-arm
+    needs: [new-tag]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image-of-docker: ghcr.io/emqxecp/ecp-emqx-agent-downloader
+            file: emqx-bc-emqxee-agent/build/download-proxy/Dockerfile
+          - image-of-docker: ghcr.io/emqxecp/ecp-emqx-agent
+            file: emqx-bc-emqxee-agent/build/agent/Dockerfile
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            emqx-bc-emqxee-agent
+            EMQX-Business-Critical
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.generate-token.outputs.token }}
+      # 拉取 https://github.com/emqx/emqx-bc-emqxee-agent 仓库
+      - uses: actions/checkout@v4
+        with:
+          repository: emqx/emqx-bc-emqxee-agent
+          ref: develop
+          path: emqx-bc-emqxee-agent
+          token: ${{ steps.generate-token.outputs.token }}
+          fetch-depth: 0  # 获取完整的 Git 历史记录
+          fetch-tags: true  # 确保获取所有 tags
+      - uses: docker/setup-qemu-action@v2
+      - uses: docker/setup-buildx-action@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - name: Set image
+        id: image
+        run: |
+          if ${{ contains(fromJSON('["release"]'), github.ref)  }}; then
+            echo 'version=latest' >> $GITHUB_OUTPUT
+          elif ${{ contains(fromJSON('["build"]'), github.ref)  }}; then
+            version=$(echo ${{ github.ref }} | sed -e 's/refs\/heads\/build\///')
+            echo 'version=$version' >> $GITHUB_OUTPUT
+          fi
+
+          echo 'registry="${{ matrix.image-of-docker }}"' >> $GITHUB_OUTPUT
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ steps.image.outputs.registry }}
+          tags: |
+            # set latest for tag
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            # extract tag of build branch or release branch
+            type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
+            # minimal (short sha)
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short,enable=${{ github.ref_type != 'tag' }}
+            # set latest tag for master branch
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            # set dev-latest tag for develop branch
+            type=raw,value=dev-latest,enable=${{ github.ref == format('refs/heads/{0}', 'develop') }}
+            # semver version
+            type=semver,pattern={{version}}
+            # branch event
+            type=ref,event=branch
+            # set tag for branch begins with build
+            type=raw,value=build,enable=${{ startsWith(github.ref, 'refs/heads/build/') }}
+
+      - name: Pull and retag existing image
+        if: needs.new-tag.outputs.skip_build == 'true'
+        working-directory: emqx-bc-emqxee-agent
+        run: |
+          # 从上一个 tag 拉取镜像并重新标记为当前 tag
+          previous_tag=${{ needs.new-tag.outputs.previous_tag }}
+          current_tag=${{ needs.new-tag.outputs.current_tag }}
+          
+          if [ "$previous_tag" != "$current_tag" ]; then
+            # 拉取上一个 tag 的镜像
+            docker pull ${{ matrix.image-of-aliyun }}:$previous_tag
+            
+            # 重新标记为当前 tag
+            docker tag ${{ matrix.image-of-aliyun }}:$previous_tag ${{ matrix.image-of-aliyun }}:$current_tag
+            docker tag ${{ matrix.image-of-aliyun }}:$previous_tag ${{ matrix.image-of-aliyun }}:latest
+            
+            # 推送新标记的镜像
+            docker push ${{ matrix.image-of-aliyun }}:$current_tag
+            docker push ${{ matrix.image-of-aliyun }}:latest
+            
+            # 如果是 tag 且需要推送到 Docker Hub
+            if [ -n "${{ matrix.image-of-docker }}" ]; then
+              docker tag ${{ matrix.image-of-aliyun }}:$previous_tag ${{ matrix.image-of-docker }}:$current_tag
+              docker tag ${{ matrix.image-of-aliyun }}:$previous_tag ${{ matrix.image-of-docker }}:latest
+              docker push ${{ matrix.image-of-docker }}:$current_tag
+              docker push ${{ matrix.image-of-docker }}:latest
+            fi
+            
+            echo "Successfully retagged and pushed image from $previous_tag to $current_tag"
+          else
+            echo "Previous tag and current tag are the same, skipping retag and push"
+          fi
+      
+      - name: Build and push Docker Image
+        uses: docker/build-push-action@v5
+        if: needs.new-tag.outputs.skip_build == 'false'
+        with:
+          context: ./emqx-bc-emqxee-agent
+          file: ${{ matrix.file }}
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 启用缓存：从 GitHub Actions 缓存拉取，推送到缓存
+          cache-from: type=gha
+          cache-to: type=gha,mode=max  # mode=max 保留所有层供下次复用
+          # 可选：添加 Buildx 构建器配置，优化 arm64 性能
+          builder: ${{ steps.buildx.outputs.name }}
