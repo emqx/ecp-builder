@@ -89,4 +89,4 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         file: trace-exchanger/Dockerfile
         context: trace-exchanger
-        outputs: type=docker,dest=/tmp/trace-exchanger.tar
+        outputs: type=oci,dest=/tmp/trace-exchanger.tar
