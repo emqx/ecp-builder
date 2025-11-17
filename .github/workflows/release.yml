@@ -66,8 +66,16 @@ jobs:
           echo "GONOPROXY=github.com/emqx/*" >> $GITHUB_ENV
           echo "GONOSUMDB=github.com/emqx/*" >> $GITHUB_ENV
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: emqxecp/trace-exchanger
+          ref: ${{ github.ref }}
+          path: ecp-main
+          fetch-depth: 0
+          token: ${{ secrets.EMQXECP_GIT_TOKEN }}
       - name: Docker image tag
         id: image
+        working-directory: ecp-main
         run: |
           tag="${GITHUB_REF##*/}"
           if [[ ${{ github.event_name }} == "pull_request" ]]; then
@@ -100,7 +108,7 @@ jobs:
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
       - uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./ecp-main
           platforms: linux/amd64
           push: true
           load: true
@@ -122,7 +130,7 @@ jobs:
 
 
       - name: Check Docker Compose command version
-        working-directory: deployments/docker-compose
+        working-directory: ./ecp-main/deployments/docker-compose
         run: |
           echo "$GITHUB_REF"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -142,6 +150,7 @@ jobs:
       - name: Get dependency images
         id: get-dependency-images
         if: github.ref_type == 'tag'
+        working-directory: ./ecp-main
         run: |
           cd deployments/docker-compose
           echo 'images<<EOF' >> $GITHUB_OUTPUT
@@ -297,10 +306,11 @@ jobs:
           GIT_TOKEN: ${{ steps.generate-token.outputs.token }}
           DASHBOARD_VERSION: ${{ github.ref_name }}
           ALL_IN_ONE: true
+        working-directory: ./ecp-main
         run: make pkg_all_in_one
       
       - name: Check Docker Compose command version
-        working-directory: deployments/docker-compose
+        working-directory: ./ecp-main/deployments/docker-compose
         run: |
           CURRENT_TAG="${GITHUB_REF##*/}"
           
@@ -322,7 +332,7 @@ jobs:
           fi
 
       - name: Package of docker compose
-        working-directory: deployments
+        working-directory: ./ecp-main/deployments
         if: matrix.os == 'ubuntu-22.04'
         run: |
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
@@ -337,7 +347,7 @@ jobs:
         with:
           name: packages-${{ matrix.os }}
           path: |
-            deployments/emqx-ecp-docker-compose-installer*
+            ./ecp-main/deployments/emqx-ecp-docker-compose-installer*
             emqx-bc-service-in-one-${{ github.ref_name }}*
           if-no-files-found: error 
 
