@@ -120,7 +120,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             GIT_TOKEN=${{ steps.generate-token.outputs.token }}
-          file: build/docker_build/Dockerfile
+          file: ecp-main/build/docker_build/Dockerfile
       - name: Manual Trivy Setup
         uses: aquasecurity/setup-trivy@v0.2.0
         with:
@@ -237,8 +237,10 @@ jobs:
           repository: emqx/EMQX-Business-Critical
           ref: ${{ github.ref }}
           path: ecp-main
-          fetch-depth: 0
           token: ${{ steps.generate-token.outputs.token }}
+          fetch-depth: 0  # 禁用浅克隆（浅克隆+protocol.v2易触发兼容性问题）
+        env:
+          GIT_CONFIG_PARAMETERS: "'protocol.version=1'"  # 强制使用Git协议v1
 
       - name: Set up Go
         id: go
