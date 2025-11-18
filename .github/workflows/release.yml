@@ -267,6 +267,7 @@ jobs:
 
 
   build-ubuntu:
+    
     strategy:
       matrix:
         os:
@@ -366,7 +367,7 @@ jobs:
     runs-on: ubuntu-22.04-arm
     needs:
       - build-ubuntu
-      - build-macos
+      # - build-macos
       - docker
     steps:
       - uses: actions/checkout@v4
