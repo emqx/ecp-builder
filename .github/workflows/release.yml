@@ -198,76 +198,7 @@ jobs:
           path: trivy-report.txt
           if-no-files-found: error
 
-
-  build-macos:
-    strategy:
-      matrix:
-        os:
-          - macos-26
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/create-github-app-token@v1
-        id: generate-token
-        with:
-          app-id: ${{ vars.AUTH_APP_ID }}
-          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: |
-            gotools
-            emqx-bc-iaas-hand
-            neuronex-operator
-            EMQX-Business-Critical
-            emqx-bc-web
-            gorm
-            ecp-ai
-
-      - name: Private repo access
-        run: |
-          git config --global url."https://x-access-token:${{ steps.generate-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
-          echo "GOPRIVATE=github.com/emqx/*" >> $GITHUB_ENV
-          echo "GONOPROXY=github.com/emqx/*" >> $GITHUB_ENV
-          echo "GONOSUMDB=github.com/emqx/*" >> $GITHUB_ENV
-
-      # - uses: actions/checkout@v4
-      #   with:
-      #     fetch-tags: true
-      #     ref: ${{ github.ref }}
-      - name: Upgrade Git
-        run: brew upgrade git  # macOS 用 brew 升级
-      - uses: actions/checkout@v4
-        with:
-          repository: emqx/EMQX-Business-Critical
-          ref: ${{ github.ref }}
-          path: ecp-main
-          token: ${{ steps.generate-token.outputs.token }}
-          fetch-depth: 0  
-
-
-      - name: Set up Go
-        id: go
-        uses: actions/setup-go@v3
-        with:
-          go-version: '1.22.0'
-
-      # package
-      - name: Package
-        env:
-          GIT_TOKEN: ${{ steps.generate-token.outputs.token }}
-          DASHBOARD_VERSION: ${{ github.ref_name }}
-          ALL_IN_ONE: true
-        working-directory: ecp-main
-        run: make pkg_all_in_one
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: packages-${{ matrix.os }}
-          path: |
-            emqx-bc-service-in-one-${{ github.ref_name }}*
-          if-no-files-found: error 
-
-
   build-ubuntu:
-    
     strategy:
       matrix:
         os:
@@ -367,7 +298,6 @@ jobs:
     runs-on: ubuntu-22.04-arm
     needs:
       - build-ubuntu
-      # - build-macos
       - docker
     steps:
       - uses: actions/checkout@v4
