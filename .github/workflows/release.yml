@@ -232,7 +232,9 @@ jobs:
       #   with:
       #     fetch-tags: true
       #     ref: ${{ github.ref }}
-      - uses: actions/checkout@v3
+      - name: Upgrade Git
+        run: brew upgrade git  # macOS 用 brew 升级
+      - uses: actions/checkout@v4
         with:
           repository: emqx/EMQX-Business-Critical
           ref: ${{ github.ref }}
