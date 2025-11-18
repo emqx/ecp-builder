@@ -76,7 +76,7 @@ jobs:
           ref: ${{ github.ref }}
           path: ecp-main
           fetch-depth: 0
-          token: ${{ secrets.EMQXECP_GIT_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
       - name: Docker image tag
         id: image
         working-directory: ecp-main
@@ -238,7 +238,7 @@ jobs:
           ref: ${{ github.ref }}
           path: ecp-main
           fetch-depth: 0
-          token: ${{ secrets.EMQXECP_GIT_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
 
       - name: Set up Go
         id: go
@@ -300,7 +300,7 @@ jobs:
           ref: ${{ github.ref }}
           path: ecp-main
           fetch-depth: 0
-          token: ${{ secrets.EMQXECP_GIT_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
 
       - name: Set up Go
         id: go
