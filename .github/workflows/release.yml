@@ -203,7 +203,7 @@ jobs:
     strategy:
       matrix:
         os:
-          - macos-15
+          - macos-26
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/create-github-app-token@v1
@@ -238,9 +238,8 @@ jobs:
           ref: ${{ github.ref }}
           path: ecp-main
           token: ${{ steps.generate-token.outputs.token }}
-          fetch-depth: 0  # 禁用浅克隆（浅克隆+protocol.v2易触发兼容性问题）
-        env:
-          GIT_CONFIG_PARAMETERS: "'protocol.version=1'"  # 强制使用Git协议v1
+          fetch-depth: 0  
+
 
       - name: Set up Go
         id: go
