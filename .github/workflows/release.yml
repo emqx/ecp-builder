@@ -39,6 +39,15 @@ jobs:
           check-regexp: '^build emqxee-agent.*'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
+
+      - name: Wait for the build emqx-ecp-web workflow to complete
+        uses: lewagon/wait-on-check-action@v1.4.0
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-name: 'build emqx-ecp-web'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
   
   docker:
     runs-on: ubuntu-22.04-arm

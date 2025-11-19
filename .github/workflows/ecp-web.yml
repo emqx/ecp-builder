@@ -1,0 +1,76 @@
+name: build emqx-ecp-web
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  build-docker-images:
+    name: build emqx-ecp-web
+    runs-on: ubuntu-22.04-arm
+    permissions: write-all
+
+    steps:
+    - uses: actions/create-github-app-token@v1
+      id: generate-token
+      with:
+        app-id: ${{ vars.AUTH_APP_ID }}
+        private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        repositories: |
+          emqx-ecp-web
+          EMQX-Business-Critical
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ steps.generate-token.outputs.token }}
+    # 拉取 https://github.com/emqx/emqx-ecp-web 仓库
+    - uses: actions/checkout@v4
+      with:
+        repository: emqx/emqx-ecp-web
+        ref: ${{ github.ref }}
+        path: emqx-ecp-web
+        token: ${{ steps.generate-token.outputs.token }}
+    - name: Check latest image
+      id: latest
+      run: |
+        echo "latest=false" >> $GITHUB_OUTPUT
+        if echo "${{ github.ref_name }}" |egrep -q "^[0-9].[0-9].[0-9]$"; then
+        echo "latest=true" >> $GITHUB_OUTPUT
+        fi
+    - name: Cusmoter image tag
+      id: customer
+      run: |
+        tag="${GITHUB_REF##*/}"
+        echo "tag=$tag" >> $GITHUB_OUTPUT
+    - uses: docker/metadata-action@v4
+      id: meta
+      with:
+        images: ghcr.io/emqxecp/emqx-ecp-web
+        flavor: |
+          latest=${{ steps.latest.outputs.latest }}
+        tags: |
+          type=raw,enable=${{ contains(github.ref_name, 'customer') }},value=${{ steps.customer.outputs.tag }}
+          type=ref,event=branch,enable=${{ !contains(github.ref_name, 'customer') }}
+          type=ref,event=pr,enable=${{ !contains(github.ref_name, 'customer') }}
+          type=ref,event=tag,enable=${{ !contains(github.ref_name, 'customer') }}
+          type=semver,pattern={{version}},enable=${{ !contains(github.ref_name, 'customer') }}
+          type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, 'customer') }}
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+    - name: Build image
+      uses: docker/build-push-action@v3
+      with:
+        push: true
+        load: ${{ contains(github.ref_name, 'customer') }}
+        build-args: |
+          GIT_TOKEN=${{ steps.generate-token.outputs.token }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        file: emqx-ecp-web/build/docker_build/Dockerfile
+        context: emqx-ecp-web
