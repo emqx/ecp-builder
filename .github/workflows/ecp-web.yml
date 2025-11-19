@@ -48,7 +48,7 @@ jobs:
     - uses: docker/metadata-action@v4
       id: meta
       with:
-        images: ghcr.io/emqxecp/emqx-bc-web
+        images: ghcr.io/emqxecp/ecp-ui
         flavor: |
           latest=${{ steps.latest.outputs.latest }}
         tags: |
