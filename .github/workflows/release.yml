@@ -165,7 +165,8 @@ jobs:
           cd deployments/docker-compose
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
-            if [[ "$image" == "docker.io/emqx/nanomq*" ]]; then
+            echo "$image"
+            if [[ $image == docker.io/emqx/nanomq* ]]; then
               docker pull $image
               docker tag $image ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
               docker push ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
@@ -174,6 +175,7 @@ jobs:
             if [[ $image == docker.io/emqx/* ]]; then
               image="ghcr.io/emqxecp/${image#docker.io/emqx/}"
             fi
+            echo "new image => $image"
             echo "$image" >> $GITHUB_OUTPUT
           done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | grep -v 'ecp-main' | tail -n +3)"
           echo 'EOF' >> $GITHUB_OUTPUT
