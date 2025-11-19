@@ -165,6 +165,12 @@ jobs:
           cd deployments/docker-compose
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
+            if [[ "$image" == "docker.io/emqx/nanomq*" ]]; then
+              docker pull $image
+              docker tag $image ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
+              docker push ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
+            fi
+            
             if [[ $image == docker.io/emqx/* ]]; then
               image="ghcr.io/emqxecp/${image#docker.io/emqx/}"
             fi
@@ -174,11 +180,6 @@ jobs:
       - name: Download dependency images
         run: |
           while read -r image; do
-            if [[ "$image" == "docker.io/emqx/nanomq*" ]]; then
-              docker pull $image
-              docker tag $image ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
-              docker push ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
-            fi
             docker pull $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - name: Run Trivy scanner of dependency images
