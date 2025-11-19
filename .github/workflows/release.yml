@@ -177,6 +177,7 @@ jobs:
             if [[ "$image" == "docker.io/emqx/nanomq*" ]]; then
               docker pull $image
               docker tag $image ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
+              docker push ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
             fi
             docker pull $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
