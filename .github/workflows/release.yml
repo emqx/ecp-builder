@@ -162,6 +162,9 @@ jobs:
       - name: Download dependency images
         run: |
           while read -r image; do
+            if [[ $image == emqx/* ]]; then
+              image="ghcr.io/emqxecp/${image#emqx/}"
+            fi
             docker pull $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - name: Run Trivy scanner of dependency images
@@ -178,6 +181,9 @@ jobs:
         run: |
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
+            if [[ $image == ghcr.io/emqxecp/* ]]; then
+              continue
+            fi
             new_image=ghcr.io/emqxecp/${image##*/}
             docker tag $image $new_image
             echo "$new_image" >> $GITHUB_OUTPUT
