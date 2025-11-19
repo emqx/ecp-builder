@@ -156,15 +156,15 @@ jobs:
           cd deployments/docker-compose
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
+            if [[ $image == emqx/* ]]; then
+              image="ghcr.io/emqxecp/${image#emqx/}"
+            fi
             echo "$image" >> $GITHUB_OUTPUT
           done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | grep -v 'ecp-main' | tail -n +3)"
           echo 'EOF' >> $GITHUB_OUTPUT
       - name: Download dependency images
         run: |
           while read -r image; do
-            if [[ $image == emqx/* ]]; then
-              image="ghcr.io/emqxecp/${image#emqx/}"
-            fi
             docker pull $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - name: Run Trivy scanner of dependency images
