@@ -156,8 +156,8 @@ jobs:
           cd deployments/docker-compose
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
-            if [[ $image == emqx/* ]]; then
-              image="ghcr.io/emqxecp/${image#emqx/}"
+            if [[ $image == docker.io/emqx/* ]]; then
+              image="ghcr.io/emqxecp/${image#docker.io/emqx/}"
             fi
             echo "$image" >> $GITHUB_OUTPUT
           done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | grep -v 'ecp-main' | tail -n +3)"
