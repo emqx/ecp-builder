@@ -224,7 +224,7 @@ jobs:
     strategy:
       matrix:
         os:
-          - ubuntu-22.04
+          - ubuntu-22.04-arm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/create-github-app-token@v1
@@ -298,7 +298,6 @@ jobs:
 
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
-        if: matrix.os == 'ubuntu-22.04'
         run: |
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
@@ -329,7 +328,6 @@ jobs:
           merge-multiple: true
           path: packages
       - uses: actions/download-artifact@v4
-        if: github.ref_type == 'tag'
         with:
           name: image-packages
           path: packages
