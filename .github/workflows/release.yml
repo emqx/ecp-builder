@@ -327,10 +327,10 @@ jobs:
           pattern: packages-*
           merge-multiple: true
           path: packages
-      - uses: actions/download-artifact@v4
-        with:
-          name: image-packages
-          path: packages
+      # - uses: actions/download-artifact@v4
+      #   with:
+      #     name: image-packages
+      #     path: packages
       - uses: actions/download-artifact@v4
         with:
           pattern: trivy-reports
