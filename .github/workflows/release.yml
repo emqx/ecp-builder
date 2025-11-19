@@ -40,12 +40,12 @@ jobs:
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
-      - name: Wait for the build emqx-ecp-web workflow to complete
+      - name: Wait for the build emqx-bc-web workflow to complete
         uses: lewagon/wait-on-check-action@v1.4.0
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build emqx-ecp-web'
+          check-name: 'build emqx-bc-web'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
   

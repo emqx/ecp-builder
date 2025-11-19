@@ -1,4 +1,4 @@
-name: build emqx-ecp-web
+name: build emqx-bc-web
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-docker-images:
-    name: build emqx-ecp-web
+    name: build emqx-bc-web
     runs-on: ubuntu-22.04-arm
     permissions: write-all
 
@@ -20,18 +20,18 @@ jobs:
         private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
         owner: ${{ github.repository_owner }}
         repositories: |
-          emqx-ecp-web
+          emqx-bc-web
           EMQX-Business-Critical
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
         token: ${{ steps.generate-token.outputs.token }}
-    # 拉取 https://github.com/emqx/emqx-ecp-web 仓库
+    # 拉取 https://github.com/emqx/emqx-bc-web 仓库
     - uses: actions/checkout@v4
       with:
-        repository: emqx/emqx-ecp-web
+        repository: emqx/emqx-bc-web
         ref: ${{ github.ref }}
-        path: emqx-ecp-web
+        path: emqx-bc-web
         token: ${{ steps.generate-token.outputs.token }}
     - name: Check latest image
       id: latest
@@ -48,7 +48,7 @@ jobs:
     - uses: docker/metadata-action@v4
       id: meta
       with:
-        images: ghcr.io/emqxecp/emqx-ecp-web
+        images: ghcr.io/emqxecp/emqx-bc-web
         flavor: |
           latest=${{ steps.latest.outputs.latest }}
         tags: |
@@ -72,5 +72,5 @@ jobs:
           GIT_TOKEN=${{ steps.generate-token.outputs.token }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        file: emqx-ecp-web/build/docker_build/Dockerfile
-        context: emqx-ecp-web
+        file: emqx-bc-web/build/docker_build/Dockerfile
+        context: emqx-bc-web
