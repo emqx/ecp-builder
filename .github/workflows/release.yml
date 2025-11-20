@@ -337,7 +337,7 @@ jobs:
           merge-multiple: true
           path: trivy-reports
       - name: Check Docker Compose command version
-        working-directory: deployments/docker-compose
+        working-directory: ./ecp-main/deployments/docker-compose
         run: |
           CURRENT_TAG="${GITHUB_REF##*/}"
           
