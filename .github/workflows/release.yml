@@ -336,7 +336,13 @@ jobs:
           pattern: trivy-reports
           merge-multiple: true
           path: trivy-reports
-      - uses: actions/checkout@v4
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: EMQX-Business-Critical
       - uses: actions/checkout@v4
         with:
           repository: emqx/EMQX-Business-Critical
