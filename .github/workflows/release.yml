@@ -299,6 +299,7 @@ jobs:
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
         run: |
+          cp -f ./scripts/emqx_ecp.conf.arm64 ./docker-compose/emqx_ecp.conf
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
             --exclude="docker-compose/.gitingore" \
@@ -311,8 +312,8 @@ jobs:
         with:
           name: packages-${{ matrix.os }}
           path: |
-            ./ecp-main/deployments/emqx-ecp-docker-compose-installer*
-            emqx-bc-service-in-one-${{ github.ref_name }}*
+            ./ecp-main/deployments/emqx-ecp-arm64-docker-compose-installer*
+            ./ecp-main/emqx-bc-service-in-one-${{ github.ref_name }}*
           if-no-files-found: error 
 
   release:
