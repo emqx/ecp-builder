@@ -1,4 +1,4 @@
-name: build trace-exchanger
+name: build emqx-bc-web
 
 on:
   workflow_dispatch:
@@ -8,23 +8,31 @@ on:
 
 jobs:
   build-docker-images:
-    name: build trace-exchanger
+    name: build emqx-bc-web
     runs-on: ubuntu-22.04-arm
     permissions: write-all
 
     steps:
+    - uses: actions/create-github-app-token@v1
+      id: generate-token
+      with:
+        app-id: ${{ vars.AUTH_APP_ID }}
+        private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        repositories: |
+          emqx-bc-web
+          EMQX-Business-Critical
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        token: ${{ github.token }}
-    # 拉取 https://github.com/emqxecp/trace-exchanger 仓库
+        token: ${{ steps.generate-token.outputs.token }}
+    # 拉取 https://github.com/emqx/emqx-bc-web 仓库
     - uses: actions/checkout@v4
       with:
-        repository: emqxecp/trace-exchanger
-        ref: main
-        path: trace-exchanger
-        fetch-depth: 0
-        token: ${{ secrets.EMQXECP_GIT_TOKEN }}
+        repository: emqx/emqx-bc-web
+        ref: ${{ github.ref }}
+        path: emqx-bc-web
+        token: ${{ steps.generate-token.outputs.token }}
     - name: Check latest image
       id: latest
       run: |
@@ -40,7 +48,7 @@ jobs:
     - uses: docker/metadata-action@v4
       id: meta
       with:
-        images: ghcr.io/emqxecp/trace-exchanger
+        images: ghcr.io/emqxecp/ecp-ui
         flavor: |
           latest=${{ steps.latest.outputs.latest }}
         tags: |
@@ -55,25 +63,14 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.EMQXECP_GIT_TOKEN }}
-    - name: Cleanup Disk Space
-      run: |
-        docker system prune --all --force
-        sudo rm -rf /tmp/*
-        sudo rm -rf /var/tmp/*
-        sudo rm -rf /var/cache/apt/*
-        sudo rm -rf /var/cache/debconf/*-old
-        sudo rm -rf /var/lib/dpkg/*-old
-        sudo rm -rf /var/log/*
-        sudo rm -rf /var/cache/*
-        echo "Disk cleanup completed."
     - name: Build image
       uses: docker/build-push-action@v3
       with:
         push: true
         load: ${{ contains(github.ref_name, 'customer') }}
         build-args: |
-          GIT_TOKEN=${{ secrets.CI_GIT_TOKEN }}
+          GIT_TOKEN=${{ steps.generate-token.outputs.token }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        file: trace-exchanger/Dockerfile
-        context: trace-exchanger
+        file: emqx-bc-web/build/docker_build/Dockerfile
+        context: emqx-bc-web
