@@ -16,7 +16,7 @@ jobs:
       - name: init wait
         run: |
           echo "Waiting for the dependencies build workflow to complete..."
-          time.sleep(60*3)  # Wait for 3 minutes
+          sleep 180  # Wait for 3 minutes
       - name: Wait for the build ecp-ai workflow to complete
         uses: lewagon/wait-on-check-action@v1.4.1
         with:
@@ -383,6 +383,7 @@ jobs:
             target=ghcr.io/emqxecp/${image##*/}
             set -- ${MAP["$image"]}
             docker buildx imagetools create -t "$target" "$1" "$2"
+            sleep 5
           done
 
   release:
