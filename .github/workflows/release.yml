@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build ecp-ai.*'
+          check-name: 'build ecp-ai'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
@@ -36,7 +36,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-regexp: '^build emqxee-agent.*'
+          check-regexp: 'build emqxee-agent.*'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
