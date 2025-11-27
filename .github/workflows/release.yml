@@ -195,15 +195,6 @@ jobs:
           while read -r image; do
             docker pull $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - name: Run Trivy scanner of dependency images
-        run: |
-          set -xv
-          echo "" > ./trivy-report.txt
-          while read -r image; do
-            trivy image --severity CRITICAL,HIGH $image --output ./trivy-report-temp.txt
-            echo "\n\n\n $image trivy report:\n" >> ./trivy-report.txt
-            cat ./trivy-report-temp.txt >> ./trivy-report.txt
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - name: Collect dependency image digests
         run: |
           > dependency-digests.txt
@@ -215,12 +206,6 @@ jobs:
         with:
           name: dependency-digests-${{ matrix.suffix_platform }}
           path: dependency-digests.txt
-      - name: Upload Trivy report
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-reports
-          path: trivy-report.txt
-          if-no-files-found: error
 
   build-ubuntu:
     strategy:
@@ -409,15 +394,6 @@ jobs:
           pattern: packages-*
           merge-multiple: true
           path: packages
-      # - uses: actions/download-artifact@v4
-      #   with:
-      #     name: image-packages
-      #     path: packages
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: trivy-reports
-          merge-multiple: true
-          path: trivy-reports
       - uses: actions/create-github-app-token@v1
         id: generate-token
         with:
@@ -464,4 +440,3 @@ jobs:
           generate_release_notes: true
           files: |
             packages/**
-            trivy-reports/**
