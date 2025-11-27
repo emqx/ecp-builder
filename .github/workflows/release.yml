@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - name: Wait for the build ecp-ai workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -23,7 +23,7 @@ jobs:
           allowed-conclusions: success,skipped,cancelled
 
       - name: Wait for the build trace-exchanger workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -32,7 +32,7 @@ jobs:
           allowed-conclusions: success,skipped,cancelled
 
       - name: Wait for the build emqxee-agent workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -41,7 +41,7 @@ jobs:
           allowed-conclusions: success,skipped,cancelled
 
       - name: Wait for the build emqx-bc-web workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
