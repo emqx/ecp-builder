@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build ecp-ai'
+          check-name: 'build ecp-ai.*'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
@@ -27,7 +27,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build trace-exchanger'
+          check-name: 'build trace-exchanger.*'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
@@ -45,7 +45,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build emqx-bc-web'
+          check-name: 'build emqx-bc-web.*'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
   
@@ -309,9 +309,7 @@ jobs:
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
         run: |
-          if [ "${{ matrix.suffix_platform }}" = "arm64" ]; then
-            cp -f ./scripts/emqx_ecp.conf.arm64 ./docker-compose/emqx_ecp.conf
-          fi
+          cp -f ./scripts/emqx_ecp.conf.arm64 ./docker-compose/emqx_ecp.conf
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
             --exclude="docker-compose/.gitingore" \
