@@ -183,7 +183,7 @@ jobs:
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
             # 排除指定镜像
-            if [[ "$image" =~ ^(trace-exchanger|ecp-emqx-agent-downloader|ecp-emqx-agent|ecp-ai|ecp-main|ecp-ui)$ ]]; then
+            if [[ "$image" =~ (trace-exchanger|ecp-emqx-agent-downloader|ecp-emqx-agent|ecp-ai|ecp-main|ecp-ui) ]]; then
               continue
             fi
             echo "$image"
