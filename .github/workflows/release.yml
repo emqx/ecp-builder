@@ -114,6 +114,8 @@ jobs:
             type=raw,value=${{ steps.image.outputs.tag }},enabled=${{ github.ref_type != 'tag' }}
             type=semver,pattern={{version}},enabled=${{ github.ref_type == 'tag' }}
             type=semver,pattern={{major}}.{{minor}},enabled=${{ github.ref_type == 'tag' }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -123,7 +125,7 @@ jobs:
         with:
           context: ./ecp-main
           push: true
-          load: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -166,16 +168,6 @@ jobs:
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
             echo "$image"
-            if [[ $image == docker.io/emqx/nanomq* ]]; then
-              docker pull $image
-              docker tag $image ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
-              docker push ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
-            fi
-            
-            if [[ $image == docker.io/emqx/* ]]; then
-              image="ghcr.io/emqxecp/${image#docker.io/emqx/}"
-            fi
-            echo "new image => $image"
             echo "$image" >> $GITHUB_OUTPUT
           done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | grep -v 'ecp-main' | tail -n +3)"
           echo 'EOF' >> $GITHUB_OUTPUT
@@ -193,26 +185,13 @@ jobs:
             echo "\n\n\n $image trivy report:\n" >> ./trivy-report.txt
             cat ./trivy-report-temp.txt >> ./trivy-report.txt
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - name: Retag dependency images
-        id: retag-dependency-images
+      - name: Mirror dependency images to ghcr as multi-arch manifests
         run: |
-          echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
-            if [[ $image == ghcr.io/emqxecp/* ]]; then
-              continue
-            fi
-            new_image=ghcr.io/emqxecp/${image##*/}
-            docker tag $image $new_image
-            echo "$new_image" >> $GITHUB_OUTPUT
+            target=ghcr.io/emqxecp/${image##*/}
+            echo "Mirroring $image -> $target"
+            docker buildx imagetools create -t $target $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
-          echo 'EOF' >> $GITHUB_OUTPUT
-      - uses: ./.github/actions/push-images-to-acr
-        with:
-          acr-login-server: ghcr.io
-          acr-username: ${{ github.actor }}
-          acr-password: ${{ secrets.EMQXECP_GIT_TOKEN }}
-          tags: ${{ steps.retag-dependency-images.outputs.images }}
-          skip-login: 'true'
       - name: Upload Trivy report
         uses: actions/upload-artifact@v4
         with:
