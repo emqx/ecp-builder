@@ -85,15 +85,25 @@ jobs:
 
   build-image:
     name: build emqxee-agent
-    runs-on: ubuntu-22.04-arm
+    runs-on: ${{ matrix.arch }}
     needs: [new-tag]
     strategy:
       fail-fast: false
       matrix:
+        arch:
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
         include:
-          - image-of-docker: ghcr.io/emqxecp/ecp-emqx-agent-downloader
+          - arch: ubuntu-22.04
+            platform: linux/amd64
+            suffix_platform: amd64
+          - arch: ubuntu-22.04-arm
+            platform: linux/arm64
+            suffix_platform: arm64
+        target:
+          - image_of_docker: ghcr.io/emqxecp/ecp-emqx-agent-downloader
             file: emqx-bc-emqxee-agent/build/download-proxy/Dockerfile
-          - image-of-docker: ghcr.io/emqxecp/ecp-emqx-agent
+          - image_of_docker: ghcr.io/emqxecp/ecp-emqx-agent
             file: emqx-bc-emqxee-agent/build/agent/Dockerfile
     steps:
       - uses: actions/create-github-app-token@v1
@@ -125,6 +135,40 @@ jobs:
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./emqx-bc-emqxee-agent
+          file: ${{ matrix.target.file }}
+          push: true
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ matrix.target.image_of_docker }},push-by-digest=true,name-canonical=true
+          provenance: false
+      - name: Set image base
+        id: base
+        run: |
+          name="${{ matrix.target.image_of_docker }}"
+          echo "base=${name##*/}" >> $GITHUB_OUTPUT
+      - name: Export digest artifact
+        run: |
+          echo "${{ steps.build.outputs.digest }}" > digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ steps.base.outputs.base }}-${{ matrix.suffix_platform }}
+          path: digest.txt
+
+  manifest-agent:
+    name: push multi-arch manifests for emqxee-agent images
+    runs-on: ubuntu-22.04
+    needs: [build-image]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
       - name: Set image
         id: image
         run: |
@@ -132,42 +176,67 @@ jobs:
             echo 'version=latest' >> $GITHUB_OUTPUT
           elif ${{ contains(fromJSON('["build"]'), github.ref)  }}; then
             version=$(echo ${{ github.ref }} | sed -e 's/refs\/heads\/build\///')
-            echo 'version=$version' >> $GITHUB_OUTPUT
+            echo "version=$version" >> $GITHUB_OUTPUT
           fi
-
-          echo 'registry="${{ matrix.image-of-docker }}"' >> $GITHUB_OUTPUT
-
-      - name: Extract Docker metadata
-        id: meta
+      - name: Metadata for downloader image
+        id: meta_downloader
         uses: docker/metadata-action@v4
         with:
-          images: ${{ steps.image.outputs.registry }}
+          images: ghcr.io/emqxecp/ecp-emqx-agent-downloader
           tags: |
-            # set latest for tag
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            # extract tag of build branch or release branch
             type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
-            # minimal (short sha)
             type=sha,enable=true,priority=100,prefix=,suffix=,format=short,enable=${{ github.ref_type != 'tag' }}
-            # set latest tag for master branch
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-            # set dev-latest tag for develop branch
             type=raw,value=dev-latest,enable=${{ github.ref == format('refs/heads/{0}', 'develop') }}
-            # semver version
             type=semver,pattern={{version}}
-            # branch event
             type=ref,event=branch
-            # set tag for branch begins with build
             type=raw,value=build,enable=${{ startsWith(github.ref, 'refs/heads/build/') }}
-
-      
-      - name: Build and push Docker Image
-        uses: docker/build-push-action@v5
+      - uses: actions/download-artifact@v4
         with:
-          context: ./emqx-bc-emqxee-agent
-          file: ${{ matrix.file }}
-          push: true
-          platforms: linux/amd64,linux/arm64
+          name: digest-ecp-emqx-agent-downloader-amd64
+          path: digests/downloader-amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-ecp-emqx-agent-downloader-arm64
+          path: digests/downloader-arm64
+      - name: Create multi-arch manifest for downloader
+        run: |
+          amd64=$(cat digests/downloader-amd64/digest.txt)
+          arm64=$(cat digests/downloader-arm64/digest.txt)
+          for tag in ${{ steps.meta_downloader.outputs.tags }}; do
+            docker buildx imagetools create -t "$tag" \
+              ghcr.io/emqxecp/ecp-emqx-agent-downloader@${amd64} \
+              ghcr.io/emqxecp/ecp-emqx-agent-downloader@${arm64}
+          done
+      - name: Metadata for agent image
+        id: meta_agent
+        uses: docker/metadata-action@v4
+        with:
+          images: ghcr.io/emqxecp/ecp-emqx-agent
           tags: |
-            ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short,enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=dev-latest,enable=${{ github.ref == format('refs/heads/{0}', 'develop') }}
+            type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=raw,value=build,enable=${{ startsWith(github.ref, 'refs/heads/build/') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-ecp-emqx-agent-amd64
+          path: digests/agent-amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-ecp-emqx-agent-arm64
+          path: digests/agent-arm64
+      - name: Create multi-arch manifest for agent
+        run: |
+          amd64=$(cat digests/agent-amd64/digest.txt)
+          arm64=$(cat digests/agent-arm64/digest.txt)
+          for tag in ${{ steps.meta_agent.outputs.tags }}; do
+            docker buildx imagetools create -t "$tag" \
+              ghcr.io/emqxecp/ecp-emqx-agent@${amd64} \
+              ghcr.io/emqxecp/ecp-emqx-agent@${arm64}
+          done
