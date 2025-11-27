@@ -123,6 +123,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - name: Set image
         id: image
         run: |
@@ -165,6 +167,7 @@ jobs:
           context: ./emqx-bc-emqxee-agent
           file: ${{ matrix.file }}
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
