@@ -13,6 +13,10 @@ jobs:
   wait:
     runs-on: ubuntu-slim
     steps:
+      - name: init wait
+        run: |
+          echo "Waiting for the dependencies build workflow to complete..."
+          time.sleep(60*3)  # Wait for 3 minutes
       - name: Wait for the build ecp-ai workflow to complete
         uses: lewagon/wait-on-check-action@v1.4.1
         with:
