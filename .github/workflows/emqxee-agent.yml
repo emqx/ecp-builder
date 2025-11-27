@@ -169,20 +169,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
-      - name: Set image
-        id: image
+      - name: Check latest image
+        id: latest
         run: |
-          if ${{ contains(fromJSON('["release"]'), github.ref)  }}; then
-            echo 'version=latest' >> $GITHUB_OUTPUT
-          elif ${{ contains(fromJSON('["build"]'), github.ref)  }}; then
-            version=$(echo ${{ github.ref }} | sed -e 's/refs\/heads\/build\///')
-            echo "version=$version" >> $GITHUB_OUTPUT
+          echo "latest=false" >> $GITHUB_OUTPUT
+          if echo "${{ github.ref_name }}" |egrep -q "^[0-9].[0-9].[0-9]$"; then
+          echo "latest=true" >> $GITHUB_OUTPUT
           fi
       - name: Metadata for downloader image
         id: meta_downloader
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/emqxecp/ecp-emqx-agent-downloader
+          flavor: |
+            latest=${{ steps.latest.outputs.latest }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
             type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
@@ -214,6 +214,8 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/emqxecp/ecp-emqx-agent
+          flavor: |
+            latest=${{ steps.latest.outputs.latest }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
             type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
