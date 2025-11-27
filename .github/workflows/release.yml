@@ -383,7 +383,7 @@ jobs:
           for image in "${!MAP[@]}"; do
             target=ghcr.io/emqxecp/${image##*/}
             set -- ${MAP["$image"]}
-            docker buildx imagetools create --no-concurrent  -t "$target" "$1" "$2"
+            docker buildx imagetools create -t "$target" "$1" "$2"
             sleep 5
           done
 
