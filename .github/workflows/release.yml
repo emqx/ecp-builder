@@ -370,6 +370,7 @@ jobs:
         with:
           name: dependency-digests-arm64
           path: dep-arm64
+      - uses: docker/setup-buildx-action@v3
       - name: Create and push multi-arch manifests for dependencies
         run: |
           declare -A MAP
@@ -382,7 +383,7 @@ jobs:
           for image in "${!MAP[@]}"; do
             target=ghcr.io/emqxecp/${image##*/}
             set -- ${MAP["$image"]}
-            docker buildx imagetools create -t "$target" "$1" "$2"
+            docker buildx imagetools create --no-concurrent  -t "$target" "$1" "$2"
             sleep 5
           done
 
