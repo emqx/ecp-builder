@@ -143,7 +143,6 @@ jobs:
             GIT_TOKEN=${{ steps.generate-token.outputs.token }}
           labels: ${{ steps.meta.outputs.labels }}
           file: ecp-main/build/docker_build/Dockerfile
-          platforms: ${{ matrix.platform }}
           outputs: type=image,name=ghcr.io/emqxecp/ecp-main,push-by-digest=true,name-canonical=true
           # Disable attestation to avoid conflicts with digest-based pushing
           provenance: false
