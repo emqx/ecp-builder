@@ -184,14 +184,7 @@ jobs:
           flavor: |
             latest=${{ steps.latest.outputs.latest }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
-            type=sha,enable=true,priority=100,prefix=,suffix=,format=short,enable=${{ github.ref_type != 'tag' }}
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-            type=raw,value=dev-latest,enable=${{ github.ref == format('refs/heads/{0}', 'develop') }}
-            type=semver,pattern={{version}}
-            type=ref,event=branch
-            type=raw,value=build,enable=${{ startsWith(github.ref, 'refs/heads/build/') }}
+            type=ref,event=tag,enable=true
       - uses: actions/download-artifact@v4
         with:
           name: digest-ecp-emqx-agent-downloader-amd64
@@ -204,11 +197,12 @@ jobs:
         run: |
           amd64=$(cat digests/downloader-amd64/digest.txt)
           arm64=$(cat digests/downloader-arm64/digest.txt)
-          for tag in ${{ steps.meta_downloader.outputs.tags }}; do
+          tags="${{ steps.meta_downloader.outputs.tags }}"
+          while IFS= read -r tag; do
             docker buildx imagetools create -t "$tag" \
               ghcr.io/emqxecp/ecp-emqx-agent-downloader@${amd64} \
               ghcr.io/emqxecp/ecp-emqx-agent-downloader@${arm64}
-          done
+          done <<< "$tags"
       - name: Metadata for agent image
         id: meta_agent
         uses: docker/metadata-action@v4
@@ -217,14 +211,7 @@ jobs:
           flavor: |
             latest=${{ steps.latest.outputs.latest }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=${{ steps.image.outputs.version }},enable=${{ steps.image.outputs.version != '' }}
-            type=sha,enable=true,priority=100,prefix=,suffix=,format=short,enable=${{ github.ref_type != 'tag' }}
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-            type=raw,value=dev-latest,enable=${{ github.ref == format('refs/heads/{0}', 'develop') }}
-            type=semver,pattern={{version}}
-            type=ref,event=branch
-            type=raw,value=build,enable=${{ startsWith(github.ref, 'refs/heads/build/') }}
+            type=ref,event=tag,enable=true
       - uses: actions/download-artifact@v4
         with:
           name: digest-ecp-emqx-agent-amd64
@@ -237,8 +224,9 @@ jobs:
         run: |
           amd64=$(cat digests/agent-amd64/digest.txt)
           arm64=$(cat digests/agent-arm64/digest.txt)
-          for tag in ${{ steps.meta_agent.outputs.tags }}; do
+          tags="${{ steps.meta_agent.outputs.tags }}"
+          while IFS= read -r tag; do
             docker buildx imagetools create -t "$tag" \
               ghcr.io/emqxecp/ecp-emqx-agent@${amd64} \
               ghcr.io/emqxecp/ecp-emqx-agent@${arm64}
-          done
+          done <<< "$tags"
