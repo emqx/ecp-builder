@@ -372,20 +372,49 @@ jobs:
           path: dep-arm64
       - uses: docker/setup-buildx-action@v3
       - name: Create and push multi-arch manifests for dependencies
+        continue-on-error: false
+        timeout-minutes: 20
         run: |
           declare -A MAP
           while read -r image digest; do
-            MAP["$image"]+=" ${digest}"
+              MAP["$image"]+=" ${digest}"
           done < dep-amd64/dependency-digests.txt
           while read -r image digest; do
-            MAP["$image"]+=" ${digest}"
+              MAP["$image"]+=" ${digest}"
           done < dep-arm64/dependency-digests.txt
+
           for image in "${!MAP[@]}"; do
-            target=ghcr.io/emqxecp/${image##*/}
-            set -- ${MAP["$image"]}
-            docker buildx imagetools create -t "$target" "$1" "$2"
-            sleep 5
+              target=ghcr.io/emqxecp/${image##*/}
+              set -- ${MAP["$image"]}
+              
+              echo "=== 开始推送多架构镜像: $target ==="
+              
+              max_retries=3
+              retry_count=0
+              
+              while [ $retry_count -le $max_retries ]; do
+                  echo "尝试 $((retry_count + 1))/$((max_retries + 1))"
+                  
+                  if docker buildx imagetools create -t "$target" "$1" "$2" 2>&1; then
+                      echo "✓ 成功推送: $target"
+                      break
+                  else
+                      retry_count=$((retry_count + 1))
+                      if [ $retry_count -gt $max_retries ]; then
+                          echo "✗ 错误: 推送 $target 失败，已达最大重试次数"
+                          exit 1
+                      fi
+                      wait_time=$((retry_count * 15))
+                      echo "推送失败，${wait_time}秒后重试..."
+                      sleep $wait_time
+                  fi
+              done
+              
+              echo "等待5秒后处理下一个镜像..."
+              sleep 5
           done
+
+          echo "所有镜像推送完成！"
 
   release:
     runs-on: ubuntu-22.04-arm
