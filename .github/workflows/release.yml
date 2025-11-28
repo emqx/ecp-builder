@@ -418,9 +418,6 @@ jobs:
                       sleep $wait_time
                   fi
               done
-              
-              echo "等待5秒后处理下一个镜像..."
-              sleep 5
           done
 
           echo "所有镜像推送完成！"
