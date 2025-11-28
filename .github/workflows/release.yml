@@ -179,53 +179,6 @@ jobs:
           else
             echo "Not triggered by tag, skipping"
           fi
-      - name: Get dependency images
-        id: get-dependency-images
-        working-directory: ./ecp-main
-        run: |
-          cd deployments/docker-compose
-          echo 'images<<EOF' >> $GITHUB_OUTPUT
-          while read -r image; do
-            # 排除指定镜像
-            if [[ "$image" =~ (trace-exchanger|ecp-emqx-agent-downloader|ecp-emqx-agent|ecp-ai|ecp-main|ecp-ui) ]]; then
-              continue
-            fi
-            echo "$image"
-            echo "$image" >> $GITHUB_OUTPUT
-          done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | tail -n +3)"
-          echo 'EOF' >> $GITHUB_OUTPUT
-      - name: Download dependency images
-        run: |
-          while read -r image; do
-            docker pull $image
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - name: Push dependency images to ghcr.io
-        run: |
-          while read -r image; do
-            name="${image##*/}"
-            target="ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}"
-            docker tag "$image" "$target"
-            docker push "$target"
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - name: Collect dependency image digests
-        run: |
-          > dependency-digests.txt
-          while read -r image; do
-            name="${image##*/}"
-            rd=$(docker buildx imagetools inspect "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}" --format "{{.Manifest.Digest}}" 2>/dev/null || echo "")
-            # Filter out any non-digest output that might contain MediaType or other metadata
-            rd_filtered=$(echo "$rd" | grep -E 'sha256:[a-f0-9]{64}' || echo "")
-            # Only write to file if we have a valid digest
-            if [[ -n "$rd_filtered" ]]; then
-              echo "$image ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}@${rd_filtered}" >> dependency-digests.txt
-            else
-              echo "Warning: Skipping $image - no valid digest found"
-            fi
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dependency-digests-${{ matrix.suffix_platform }}
-          path: dependency-digests.txt
 
   build-ubuntu:
     strategy:
@@ -378,69 +331,73 @@ jobs:
               ghcr.io/emqxecp/ecp-main@${amd64} \
               ghcr.io/emqxecp/ecp-main@${arm64}
           done
-      - uses: actions/download-artifact@v4
+
+
+  push_dependencies:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
         with:
-          name: dependency-digests-amd64
-          path: dep-amd64
-      - uses: actions/download-artifact@v4
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # skip-token-revoke: true  # 可选：阻止在job完成时自动撤销token
+          repositories: |
+            EMQX-Business-Critical
+
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          name: dependency-digests-arm64
-          path: dep-arm64
-      - uses: docker/setup-buildx-action@v3
-      - name: Create and push multi-arch manifests for dependencies
-        continue-on-error: false
-        timeout-minutes: 20
+          repository: emqx/EMQX-Business-Critical
+          ref: ${{ github.ref }}
+          path: ecp-main
+          fetch-depth: 0
+          token: ${{ steps.generate-token.outputs.token }}
+      - name: Get dependency images
+        id: get-dependency-images
+        working-directory: ./ecp-main
         run: |
-          # Combine dependency digests from both architectures
-          cat dep-amd64/dependency-digests.txt dep-arm64/dependency-digests.txt > combined-digests.txt
-          
-          # Group images by their base name (without arch suffix)
-          declare -A IMAGE_MAP
-          while read -r original_image mapped_image; do
-              # Skip empty lines and invalid entries
-              if [[ -z "$original_image" ]] || [[ -z "$mapped_image" ]] || [[ "$original_image" == "MediaType"* ]] || [[ "$mapped_image" == "MediaType"* ]] || [[ "$mapped_image" == *"Digest:" ]]; then
-                  continue
-              fi
-              
-              # Validate that digest looks like a proper sha256 digest
-              if ! echo "$mapped_image" | grep -q 'sha256:[a-f0-9]\{64\}'; then
-                  echo "Skipping invalid digest for $original_image: $mapped_image"
-                  continue
-              fi
-              
-              # Extract base image name from the mapped image (remove -amd64 or -arm64 suffix and @digest part)
-              # Format is: ghcr.io/emqxecp/name:tag-arch@sha256:...
-              base_name=$(echo "$mapped_image" | sed -E 's/ghcr\.io\/emqxecp\/(.+):(.+)-(amd64|arm64)@.*/\1:\2/')
-              IMAGE_MAP["$base_name"]+=" $mapped_image"
-          done < combined-digests.txt
-          
-          # Push multi-arch manifests for each image
-          for base_name in "${!IMAGE_MAP[@]}"; do
-              # Validate image name
-              if [[ -n "$base_name" ]] && [[ "$base_name" != *[[:upper:]]* ]]; then
-                  target="ghcr.io/emqxecp/$base_name"
-                  # Convert space-separated string to positional parameters
-                  set -- ${IMAGE_MAP["$base_name"]}
-                  
-                  # Skip if no valid digests
-                  if [ $# -eq 0 ]; then
-                      echo "跳过无效镜像: $base_name"
-                      continue
-                  fi
-                  
-                  echo "=== 开始推送多架构镜像: $target ==="
-                  if docker buildx imagetools create -t "$target" "$@"; then
-                      echo "✓ 成功推送: $target"
-                  else
-                      echo "✗ 错误: 推送 $target 失败"
-                      exit 1
-                  fi
-              else
-                  echo "跳过无效镜像名称: $base_name"
-              fi
-          done
-          
-          echo "所有镜像推送完成！"
+          cd deployments/docker-compose
+          echo 'images<<EOF' >> $GITHUB_OUTPUT
+          while read -r image; do
+            # 排除指定镜像
+            if [[ "$image" =~ (trace-exchanger|ecp-emqx-agent-downloader|ecp-emqx-agent|ecp-ai|ecp-main|ecp-ui) ]]; then
+              continue
+            fi
+            echo "$image"
+            echo "$image" >> $GITHUB_OUTPUT
+          done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | tail -n +3)"
+          echo 'EOF' >> $GITHUB_OUTPUT
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - name: Push dependency images to ghcr.io
+        run: |
+          while read -r image; do
+            name="${image%%:*}"  # 提取镜像名（不含tag）
+            tag="${image##*:}"   # 提取原始tag
+            basename="${name##*/}"  # 提取不带仓库路径的镜像名
+
+            # 拉取 amd64 架构的镜像并打标签
+            docker pull --platform linux/amd64 $image
+            docker tag $image ghcr.io/emqxecp/$basename:$tag-amd64
+            docker push ghcr.io/emqxecp/$basename:$tag-amd64
+
+            # 拉取 arm64 架构的镜像并打标签
+            docker pull --platform linux/arm64 $image
+            docker tag $image ghcr.io/emqxecp/$basename:$tag-arm64
+            docker push ghcr.io/emqxecp/$basename:$tag-arm64
+
+            # 创建并推送多架构manifest，使用原始tag
+            docker manifest create ghcr.io/emqxecp/$basename:$tag \
+              ghcr.io/emqxecp/$basename:$tag-amd64 \
+              ghcr.io/emqxecp/$basename:$tag-arm64
+            docker manifest push ghcr.io/emqxecp/$basename:$tag
+          done <<< "${{ steps.get-dependency-images.outputs.images }}"
+
 
   release:
     runs-on: ubuntu-22.04-arm
