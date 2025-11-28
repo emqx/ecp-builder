@@ -212,10 +212,15 @@ jobs:
           > dependency-digests.txt
           while read -r image; do
             name="${image##*/}"
-            rd=$(docker buildx imagetools inspect "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}" --format "{{.Manifest.Digest}}")
+            rd=$(docker buildx imagetools inspect "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}" --format "{{.Manifest.Digest}}" 2>/dev/null || echo "")
             # Filter out any non-digest output that might contain MediaType or other metadata
-            rd_filtered=$(echo "$rd" | grep -E 'sha256:[a-f0-9]{64}' || echo "$rd")
-            echo "$image ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}@${rd_filtered}" >> dependency-digests.txt
+            rd_filtered=$(echo "$rd" | grep -E 'sha256:[a-f0-9]{64}' || echo "")
+            # Only write to file if we have a valid digest
+            if [[ -n "$rd_filtered" ]]; then
+              echo "$image ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}@${rd_filtered}" >> dependency-digests.txt
+            else
+              echo "Warning: Skipping $image - no valid digest found"
+            fi
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -389,14 +394,24 @@ jobs:
           declare -A MAP
           while read -r image digest; do
               # Skip empty lines and lines that don't contain proper image references
-              if [[ -z "$image" ]] || [[ -z "$digest" ]] || [[ "$image" == "MediaType"* ]] || [[ "$digest" == "MediaType"* ]]; then
+              if [[ -z "$image" ]] || [[ -z "$digest" ]] || [[ "$image" == "MediaType"* ]] || [[ "$digest" == "MediaType"* ]] || [[ "$digest" == *"Digest:" ]]; then
+                  continue
+              fi
+              # Validate that digest looks like a proper sha256 digest
+              if ! echo "$digest" | grep -qE '@sha256:[a-f0-9]{64}$'; then
+                  echo "Skipping invalid digest for $image: $digest"
                   continue
               fi
               MAP["$image"]+=" ${digest}"
           done < dep-amd64/dependency-digests.txt
           while read -r image digest; do
               # Skip empty lines and lines that don't contain proper image references
-              if [[ -z "$image" ]] || [[ -z "$digest" ]] || [[ "$image" == "MediaType"* ]] || [[ "$digest" == "MediaType"* ]]; then
+              if [[ -z "$image" ]] || [[ -z "$digest" ]] || [[ "$image" == "MediaType"* ]] || [[ "$digest" == "MediaType"* ]] || [[ "$digest" == *"Digest:" ]]; then
+                  continue
+              fi
+              # Validate that digest looks like a proper sha256 digest
+              if ! echo "$digest" | grep -qE '@sha256:[a-f0-9]{64}$'; then
+                  echo "Skipping invalid digest for $image: $digest"
                   continue
               fi
               MAP["$image"]+=" ${digest}"
