@@ -212,8 +212,8 @@ jobs:
           > dependency-digests.txt
           while read -r image; do
             name="${image##*/}"
-            rd=$(docker buildx imagetools inspect "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}" --format "{{.Digest}}")
-            echo "$image ghcr.io/emqxecp/${name}@${rd}" >> dependency-digests.txt
+            rd=$(docker buildx imagetools inspect "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}" --format "{{.Manifest.Digest}}")
+            echo "$image ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}@${rd}" >> dependency-digests.txt
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - uses: actions/upload-artifact@v4
         with:
