@@ -213,7 +213,9 @@ jobs:
           while read -r image; do
             name="${image##*/}"
             rd=$(docker buildx imagetools inspect "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}" --format "{{.Manifest.Digest}}")
-            echo "$image ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}@${rd}" >> dependency-digests.txt
+            # Filter out any non-digest output that might contain MediaType or other metadata
+            rd_filtered=$(echo "$rd" | grep -E 'sha256:[a-f0-9]{64}' || echo "$rd")
+            echo "$image ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}@${rd_filtered}" >> dependency-digests.txt
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -386,38 +388,58 @@ jobs:
         run: |
           declare -A MAP
           while read -r image digest; do
+              # Skip empty lines and lines that don't contain proper image references
+              if [[ -z "$image" ]] || [[ -z "$digest" ]] || [[ "$image" == "MediaType"* ]] || [[ "$digest" == "MediaType"* ]]; then
+                  continue
+              fi
               MAP["$image"]+=" ${digest}"
           done < dep-amd64/dependency-digests.txt
           while read -r image digest; do
+              # Skip empty lines and lines that don't contain proper image references
+              if [[ -z "$image" ]] || [[ -z "$digest" ]] || [[ "$image" == "MediaType"* ]] || [[ "$digest" == "MediaType"* ]]; then
+                  continue
+              fi
               MAP["$image"]+=" ${digest}"
           done < dep-arm64/dependency-digests.txt
 
           for image in "${!MAP[@]}"; do
-              target=ghcr.io/emqxecp/${image##*/}
-              set -- ${MAP["$image"]}
-              
-              echo "=== 开始推送多架构镜像: $target ==="
-              
-              max_retries=3
-              retry_count=0
-              
-              while [ $retry_count -le $max_retries ]; do
-                  echo "尝试 $((retry_count + 1))/$((max_retries + 1))"
+              # Validate image name is lowercase and doesn't contain invalid characters
+              image_name="${image##*/}"
+              if [[ "$image_name" != *[[:upper:]]* ]] && [[ -n "$image_name" ]]; then
+                  target=ghcr.io/emqxecp/${image_name}
+                  set -- ${MAP["$image"]}
                   
-              if docker buildx imagetools create -t "$target" "$@" 2>&1; then
-                  echo "✓ 成功推送: $target"
-                  break
-                  else
-                      retry_count=$((retry_count + 1))
-                      if [ $retry_count -gt $max_retries ]; then
-                          echo "✗ 错误: 推送 $target 失败，已达最大重试次数"
-                          exit 1
-                      fi
-                      wait_time=$((retry_count * 15))
-                      echo "推送失败，${wait_time}秒后重试..."
-                      sleep $wait_time
+                  # Skip if no valid digests
+                  if [ $# -eq 0 ] || [[ "${MAP[$image]}" == " " ]]; then
+                      echo "跳过无效镜像: $image"
+                      continue
                   fi
-              done
+                  
+                  echo "=== 开始推送多架构镜像: $target ==="
+                  
+                  max_retries=3
+                  retry_count=0
+                  
+                  while [ $retry_count -le $max_retries ]; do
+                      echo "尝试 $((retry_count + 1))/$((max_retries + 1))"
+                      
+                      if docker buildx imagetools create -t "$target" "$@" 2>&1; then
+                          echo "✓ 成功推送: $target"
+                          break
+                      else
+                          retry_count=$((retry_count + 1))
+                          if [ $retry_count -gt $max_retries ]; then
+                              echo "✗ 错误: 推送 $target 失败，已达最大重试次数"
+                              exit 1
+                          fi
+                          wait_time=$((retry_count * 15))
+                          echo "推送失败，${wait_time}秒后重试..."
+                          sleep $wait_time
+                      fi
+                  done
+              else
+                  echo "跳过无效镜像名称: $image_name"
+              fi
           done
 
           echo "所有镜像推送完成！"
