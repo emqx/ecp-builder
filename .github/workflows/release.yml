@@ -199,11 +199,20 @@ jobs:
           while read -r image; do
             docker pull $image
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
+      - name: Push dependency images to ghcr.io
+        run: |
+          while read -r image; do
+            name="${image##*/}"
+            target="ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}"
+            docker tag "$image" "$target"
+            docker push "$target"
+          done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - name: Collect dependency image digests
         run: |
           > dependency-digests.txt
           while read -r image; do
-            rd=$(docker inspect --format='{{index .RepoDigests 0}}' $image)
+            name="${image##*/}"
+            rd=$(docker inspect --format='{{index .RepoDigests 0}}' "ghcr.io/emqxecp/${name}-${{ matrix.suffix_platform }}")
             echo "$image $rd" >> dependency-digests.txt
           done <<< "${{ steps.get-dependency-images.outputs.images }}"
       - uses: actions/upload-artifact@v4
