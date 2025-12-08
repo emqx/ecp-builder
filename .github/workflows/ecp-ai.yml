@@ -64,6 +64,8 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+    - uses: docker/setup-qemu-action@v3
+    - uses: docker/setup-buildx-action@v3
     - name: Cleanup Disk Space
       run: |
         docker system prune --all --force
@@ -76,12 +78,12 @@ jobs:
         sudo rm -rf /var/cache/*
         echo "Disk cleanup completed."
     - name: Build image
-      uses: docker/build-push-action@v3
+      uses: docker/build-push-action@v5
       with:
         push: true
-        load: ${{ contains(github.ref_name, 'customer') }}
         build-args: |
           GIT_TOKEN=${{ steps.generate-token.outputs.token }}
+        platforms: linux/amd64,linux/arm64
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         file: ecp-ai/Dockerfile

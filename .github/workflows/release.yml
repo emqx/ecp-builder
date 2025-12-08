@@ -11,10 +11,14 @@ on:
 
 jobs:
   wait:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-slim
     steps:
+      - name: init wait
+        run: |
+          echo "Waiting for the dependencies build workflow to complete..."
+          sleep 180  # Wait for 3 minutes
       - name: Wait for the build ecp-ai workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -23,34 +27,47 @@ jobs:
           allowed-conclusions: success,skipped,cancelled
 
       - name: Wait for the build trace-exchanger workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build trace-exchanger'
+          check-name: 'push multi-arch manifest for trace-exchanger'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
       - name: Wait for the build emqxee-agent workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-regexp: '^build emqxee-agent.*'
+          check-name: 'push multi-arch manifests for emqxee-agent images'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
       - name: Wait for the build emqx-bc-web workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build emqx-bc-web'
+          check-name: 'push multi-arch manifest for ecp-ui'
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
   
   docker:
-    runs-on: ubuntu-22.04-arm
+    strategy:
+      matrix:
+        arch:
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+        # Add platform information
+        include:
+          - arch: ubuntu-22.04
+            platform: linux/amd64
+            suffix_platform: amd64
+          - arch: ubuntu-22.04-arm
+            platform: linux/arm64
+            suffix_platform: arm64
+    runs-on: ${{ matrix.arch }}
     needs: wait
     steps:          
       # GitHub App token 有效期固定为1小时，无法修改
@@ -119,26 +136,30 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
-      - uses: docker/build-push-action@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v3
         with:
           context: ./ecp-main
           push: true
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             GIT_TOKEN=${{ steps.generate-token.outputs.token }}
+          labels: ${{ steps.meta.outputs.labels }}
           file: ecp-main/build/docker_build/Dockerfile
-      - name: Manual Trivy Setup
-        uses: aquasecurity/setup-trivy@v0.2.0
-        with:
-          cache: true
-          version: v0.57.1
-      - name: Run Trivy scanner of ecp-main on tag
+          outputs: type=image,name=ghcr.io/emqxecp/ecp-main,push-by-digest=true,name-canonical=true
+          # Disable attestation to avoid conflicts with digest-based pushing
+          provenance: false
+
+      - name: Export ecp-main digest
         run: |
-          trivy image --severity CRITICAL,HIGH `echo ${{ steps.meta.outputs.tags }} | tail -n1` --output ./trivy-report.txt
-
-
+          echo "${{ steps.build.outputs.digest }}" > ecp-main-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecp-main-digest-${{ matrix.suffix_platform }}
+          path: ecp-main-digest.txt
 
       - name: Check Docker Compose command version
         working-directory: ./ecp-main/deployments/docker-compose
@@ -158,74 +179,22 @@ jobs:
           else
             echo "Not triggered by tag, skipping"
           fi
-      - name: Get dependency images
-        id: get-dependency-images
-        working-directory: ./ecp-main
-        run: |
-          cd deployments/docker-compose
-          echo 'images<<EOF' >> $GITHUB_OUTPUT
-          while read -r image; do
-            echo "$image"
-            if [[ $image == docker.io/emqx/nanomq* ]]; then
-              docker pull $image
-              docker tag $image ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
-              docker push ghcr.io/emqxecp/nanomq:${image#docker.io/emqx/nanomq:}
-            fi
-            
-            if [[ $image == docker.io/emqx/* ]]; then
-              image="ghcr.io/emqxecp/${image#docker.io/emqx/}"
-            fi
-            echo "new image => $image"
-            echo "$image" >> $GITHUB_OUTPUT
-          done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | grep -v 'ecp-main' | tail -n +3)"
-          echo 'EOF' >> $GITHUB_OUTPUT
-      - name: Download dependency images
-        run: |
-          while read -r image; do
-            docker pull $image
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - name: Run Trivy scanner of dependency images
-        run: |
-          set -xv
-          echo "" > ./trivy-report.txt
-          while read -r image; do
-            trivy image --severity CRITICAL,HIGH $image --output ./trivy-report-temp.txt
-            echo "\n\n\n $image trivy report:\n" >> ./trivy-report.txt
-            cat ./trivy-report-temp.txt >> ./trivy-report.txt
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
-      - name: Retag dependency images
-        id: retag-dependency-images
-        run: |
-          echo 'images<<EOF' >> $GITHUB_OUTPUT
-          while read -r image; do
-            if [[ $image == ghcr.io/emqxecp/* ]]; then
-              continue
-            fi
-            new_image=ghcr.io/emqxecp/${image##*/}
-            docker tag $image $new_image
-            echo "$new_image" >> $GITHUB_OUTPUT
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
-          echo 'EOF' >> $GITHUB_OUTPUT
-      - uses: ./.github/actions/push-images-to-acr
-        with:
-          acr-login-server: ghcr.io
-          acr-username: ${{ github.actor }}
-          acr-password: ${{ secrets.EMQXECP_GIT_TOKEN }}
-          tags: ${{ steps.retag-dependency-images.outputs.images }}
-          skip-login: 'true'
-      - name: Upload Trivy report
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-reports
-          path: trivy-report.txt
-          if-no-files-found: error
 
   build-ubuntu:
     strategy:
       matrix:
-        os:
+        arch:
+          - ubuntu-22.04
           - ubuntu-22.04-arm
-    runs-on: ${{ matrix.os }}
+        # Add platform information
+        include:
+          - arch: ubuntu-22.04
+            platform: linux/amd64
+            suffix_platform: amd64
+          - arch: ubuntu-22.04-arm
+            platform: linux/arm64
+            suffix_platform: arm64
+    runs-on: ${{ matrix.arch }}
     steps:
       - uses: actions/create-github-app-token@v1
         id: generate-token
@@ -299,28 +268,143 @@ jobs:
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
         run: |
-          cp -f ./scripts/emqx_ecp.conf.arm64 ./docker-compose/emqx_ecp.conf
+          cp -f ./scripts/emqx_ecp_ctl.ghcr ./docker-compose/emqx_ecp_ctl
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
             --exclude="docker-compose/.gitingore" \
             --exclude="docker-compose/configs" \
             --exclude="docker-compose/datavolumes" \
-            -zcvf emqx-ecp-arm64-docker-compose-installer-${version}.tar.gz \
+            -zcvf emqx-ecp-${{ matrix.suffix_platform }}-docker-compose-installer-${version}.tar.gz \
             docker-compose
 
       - uses: actions/upload-artifact@v4
         with:
-          name: packages-${{ matrix.os }}
+          name: packages-${{ matrix.suffix_platform }}
           path: |
-            ./ecp-main/deployments/emqx-ecp-arm64-docker-compose-installer*
+            ./ecp-main/deployments/emqx-ecp-${{ matrix.suffix_platform }}-docker-compose-installer*
             ./ecp-main/emqx-bc-service-in-one-${{ github.ref_name }}*
           if-no-files-found: error 
+
+  manifest:
+    runs-on: ubuntu-22.04
+    needs:
+      - docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - name: Docker image tag
+        id: image
+        run: |
+          tag="${GITHUB_REF##*/}"
+          if [[ "${{github.event_name}}" == "push" ]] && [[ ${{ github.ref_name }} == "develop" ]]; then
+              tag="dev-latest"
+          fi
+          echo "tag=${tag}" >> $GITHUB_OUTPUT
+          echo 'registry="ghcr.io/emqxecp/ecp-main"' >> $GITHUB_OUTPUT
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: |
+            ${{ steps.image.outputs.registry }}
+          tags: |
+            type=raw,value=${{ steps.image.outputs.tag }},enabled=${{ github.ref_type != 'tag' }}
+            type=semver,pattern={{version}},enabled=${{ github.ref_type == 'tag' }}
+            type=semver,pattern={{major}}.{{minor}},enabled=${{ github.ref_type == 'tag' }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecp-main-digest-amd64
+          path: ecp-main-digest-amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecp-main-digest-arm64
+          path: ecp-main-digest-arm64
+      - name: Create and push multi-arch manifest for ecp-main
+        run: |
+          amd64=$(cat ecp-main-digest-amd64/ecp-main-digest.txt)
+          arm64=$(cat ecp-main-digest-arm64/ecp-main-digest.txt)
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            docker buildx imagetools create -t "$tag" \
+              ghcr.io/emqxecp/ecp-main@${amd64} \
+              ghcr.io/emqxecp/ecp-main@${arm64}
+          done
+
+
+  push_dependencies:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # skip-token-revoke: true  # 可选：阻止在job完成时自动撤销token
+          repositories: |
+            EMQX-Business-Critical
+
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: emqx/EMQX-Business-Critical
+          ref: ${{ github.ref }}
+          path: ecp-main
+          fetch-depth: 0
+          token: ${{ steps.generate-token.outputs.token }}
+      - name: Get dependency images
+        id: get-dependency-images
+        working-directory: ./ecp-main
+        run: |
+          cd deployments/docker-compose
+          echo 'images<<EOF' >> $GITHUB_OUTPUT
+          while read -r image; do
+            # 排除指定镜像
+            if [[ "$image" =~ (trace-exchanger|ecp-emqx-agent-downloader|ecp-emqx-agent|ecp-ai|ecp-main|ecp-ui) ]]; then
+              continue
+            fi
+            echo "$image"
+            echo "$image" >> $GITHUB_OUTPUT
+          done <<< "$(echo -e '\n\n' | ./emqx_ecp_ctl configure --show-images | tail -n +3)"
+          echo 'EOF' >> $GITHUB_OUTPUT
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - name: Push dependency images to ghcr.io
+        run: |
+          while read -r image; do
+            name="${image%%:*}"  # 提取镜像名（不含tag）
+            tag="${image##*:}"   # 提取原始tag
+            basename="${name##*/}"  # 提取不带仓库路径的镜像名
+
+            # 拉取 amd64 架构的镜像并打标签
+            docker pull --platform linux/amd64 $image
+            docker tag $image ghcr.io/emqxecp/$basename:$tag-amd64
+            docker push ghcr.io/emqxecp/$basename:$tag-amd64
+
+            # 拉取 arm64 架构的镜像并打标签
+            docker pull --platform linux/arm64 $image
+            docker tag $image ghcr.io/emqxecp/$basename:$tag-arm64
+            docker push ghcr.io/emqxecp/$basename:$tag-arm64
+
+            # 创建并推送多架构manifest，使用原始tag
+            docker manifest create ghcr.io/emqxecp/$basename:$tag \
+              ghcr.io/emqxecp/$basename:$tag-amd64 \
+              ghcr.io/emqxecp/$basename:$tag-arm64
+            docker manifest push ghcr.io/emqxecp/$basename:$tag
+          done <<< "${{ steps.get-dependency-images.outputs.images }}"
+
 
   release:
     runs-on: ubuntu-22.04-arm
     needs:
       - build-ubuntu
       - docker
+      - manifest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -328,15 +412,6 @@ jobs:
           pattern: packages-*
           merge-multiple: true
           path: packages
-      # - uses: actions/download-artifact@v4
-      #   with:
-      #     name: image-packages
-      #     path: packages
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: trivy-reports
-          merge-multiple: true
-          path: trivy-reports
       - uses: actions/create-github-app-token@v1
         id: generate-token
         with:
@@ -377,10 +452,9 @@ jobs:
           ## This prevents you from accidentally creating recursive workflow runs.
           ## More info: https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
           token: ${{ github.token }}
-          name: ECP application arm64 version ${{ github.ref_name }} Released
-          body: ECP application arm64 version ${{ github.ref_name }} has been released
+          name: ECP application new version ${{ github.ref_name }} Released
+          body: ECP application new version ${{ github.ref_name }} has been released
           prerelease: ${{ steps.prerelease.outputs.prerelease }}
           generate_release_notes: true
           files: |
             packages/**
-            trivy-reports/**

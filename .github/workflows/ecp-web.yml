@@ -9,8 +9,20 @@ on:
 jobs:
   build-docker-images:
     name: build emqx-bc-web
-    runs-on: ubuntu-22.04-arm
+    runs-on: ${{ matrix.arch }}
     permissions: write-all
+    strategy:
+      matrix:
+        arch:
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+        include:
+          - arch: ubuntu-22.04
+            platform: linux/amd64
+            suffix_platform: amd64
+          - arch: ubuntu-22.04-arm
+            platform: linux/arm64
+            suffix_platform: arm64
 
     steps:
     - uses: actions/create-github-app-token@v1
@@ -63,14 +75,73 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.EMQXECP_GIT_TOKEN }}
-    - name: Build image
-      uses: docker/build-push-action@v3
+    - uses: docker/setup-qemu-action@v3
+    - uses: docker/setup-buildx-action@v3
+    - name: Build and push by digest
+      id: build
+      uses: docker/build-push-action@v5
       with:
         push: true
-        load: ${{ contains(github.ref_name, 'customer') }}
         build-args: |
           GIT_TOKEN=${{ steps.generate-token.outputs.token }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        platforms: ${{ matrix.platform }}
+        outputs: type=image,name=ghcr.io/emqxecp/ecp-ui,push-by-digest=true,name-canonical=true
+        provenance: false
         file: emqx-bc-web/build/docker_build/Dockerfile
         context: emqx-bc-web
+    - name: Export digest artifact
+      run: |
+        echo "${{ steps.build.outputs.digest }}" > ecp-ui-digest.txt
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ecp-ui-digest-${{ matrix.suffix_platform }}
+        path: ecp-ui-digest.txt
+
+  manifest-ecp-web:
+    name: push multi-arch manifest for ecp-ui
+    runs-on: ubuntu-22.04
+    needs: [build-docker-images]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check latest image
+        id: latest
+        run: |
+          echo "latest=false" >> $GITHUB_OUTPUT
+          if echo "${{ github.ref_name }}" |egrep -q "^[0-9].[0-9].[0-9]$"; then
+          echo "latest=true" >> $GITHUB_OUTPUT
+          fi
+      - name: Cusmoter image tag
+        id: customer
+        run: |
+          tag="${GITHUB_REF##*/}"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+      - uses: docker/metadata-action@v4
+        id: meta
+        with:
+          images: ghcr.io/emqxecp/ecp-ui
+          flavor: |
+            latest=${{ steps.latest.outputs.latest }}
+          tags: |
+            type=ref,event=tag,enable=true
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecp-ui-digest-amd64
+          path: digests/amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecp-ui-digest-arm64
+          path: digests/arm64
+      - name: Create and push multi-arch manifest
+        run: |
+          amd64=$(cat digests/amd64/ecp-ui-digest.txt)
+          arm64=$(cat digests/arm64/ecp-ui-digest.txt)
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            docker buildx imagetools create -t "$tag" \
+              ghcr.io/emqxecp/ecp-ui@${amd64} \
+              ghcr.io/emqxecp/ecp-ui@${arm64}
+          done
