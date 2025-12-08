@@ -268,7 +268,7 @@ jobs:
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
         run: |
-          cp -f ./scripts/emqx_ecp.conf.arm64 ./docker-compose/emqx_ecp.conf
+          cp -f ./scripts/emqx_ecp_ctl.ghcr ./docker-compose/emqx_ecp_ctl
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
             --exclude="docker-compose/.gitingore" \
