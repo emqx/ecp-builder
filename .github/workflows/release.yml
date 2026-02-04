@@ -249,6 +249,7 @@ jobs:
       - name: Check Docker Compose command version
         working-directory: ./ecp-main/deployments/docker-compose
         run: |
+          cp -f /tmp/emqx_ecp_ctl.ghcr ./docker-compose/emqx_ecp_ctl
           CURRENT_TAG="${GITHUB_REF##*/}"
           
           # 新增正则校验
@@ -271,7 +272,6 @@ jobs:
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
         run: |
-          cp -f /tmp/emqx_ecp_ctl.ghcr ./docker-compose/emqx_ecp_ctl
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
             --exclude="docker-compose/.gitingore" \
