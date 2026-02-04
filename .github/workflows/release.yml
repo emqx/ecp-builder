@@ -230,7 +230,9 @@ jobs:
           path: ecp-main
           fetch-depth: 0
           token: ${{ steps.generate-token.outputs.token }}
-
+      - name: Copy emqx_ecp_ctl.ghcr
+        run: |
+          cp -f /tmp/emqx_ecp_ctl.ghcr ./ecp-main/deployments/docker-compose/emqx_ecp_ctl
       - name: Set up Go
         id: go
         uses: actions/setup-go@v6.1.0
@@ -249,7 +251,6 @@ jobs:
       - name: Check Docker Compose command version
         working-directory: ./ecp-main/deployments/docker-compose
         run: |
-          cp -f /tmp/emqx_ecp_ctl.ghcr ./docker-compose/emqx_ecp_ctl
           CURRENT_TAG="${GITHUB_REF##*/}"
           
           # 新增正则校验
