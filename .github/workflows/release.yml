@@ -220,6 +220,7 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Copy emqx_ecp_ctl.ghcr
         run: |
           cp ./emqx_ecp_ctl.ghcr /tmp/emqx_ecp_ctl.ghcr
       - uses: actions/checkout@v4
