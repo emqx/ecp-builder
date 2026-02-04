@@ -114,7 +114,7 @@ function configure() {
   read -r ECP_IMAGE_TAG
   export ECP_IMAGE_TAG=${ECP_IMAGE_TAG:-"ci-auto-use-tag-instead"}
 
-  echo -n "Please input EMQX ECP docker registry URL (default: docker.io): "
+  echo -n "Please input EMQX ECP docker registry URL (default: ghcr.io): "
   read -r EMQX_ECP_DOCKER_REGISTRY
   export EMQX_ECP_DOCKER_REGISTRY=${EMQX_ECP_DOCKER_REGISTRY:-"ghcr.io"}
 
