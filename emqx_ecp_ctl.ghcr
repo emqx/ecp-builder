@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmddir="$(dirname "$(readlink -f "$0")")"
+ECP_DATA_DIR=${cmddir}/datavolumes
+ECP_CONFIG_DIR=${cmddir}/configs
+ECP_CONFIG_TPL_DIR=${cmddir}/templates
+TELEGRAF_ENABLED=no
+
+cmd="$(dirname "$(readlink -f "$0")")"
+docker_cmd=$(command -v docker)
+CONF_FILE=$cmddir/emqx_ecp.conf
+
+docker_compose_cmd="$(command -v docker) compose"
+
+if ! docker compose >/dev/null 2>&1; then
+
+  if ! command -v docker-compose >/dev/null 2>&1; then
+    echo "Error: neither docker compose nor docker-compose available">&2
+    exit 1
+  fi
+
+  docker_compose_cmd=$(command -v docker-compose)
+fi
+
+action=$1
+second_arg=${2-""}
+
+function genEnv() {
+  set -a
+  source "${CONF_FILE}"
+  set +a
+}
+
+function usage() {
+cat << EOF
+EMQX ECP installation and management tool v0.9
+Usage: $cmd <action> [options]
+
+services management actions
+  start           Start EMQX ECP services
+  stop            Stop EMQX ECP services
+  restart         Restart EMQX ECP services
+  status          Show ECP service status
+  help            Show this help
+
+installation actions
+  precheck        Pre-check prior to EMQX ECP setup
+  configure       Configure DB and EMQX ECP
+  create-user     Create admin user
+
+destructive actions
+  remove-all      Remove all services as well as DATA!!!
+
+EOF
+}
+
+function _cmp_version_le() {
+  [[ -z "$1" || -z "$2" ]] && return 1
+  [[ "$(echo -e "$1\n$2" | sort -V | head -n1)" == "$1" ]] && return 0 || return 1
+}
+
+function precheck() {
+  if [[ -z "${docker_cmd}" ]]; then
+    echo "Docker is not found" >&2
+    exit 1
+  fi
+  docker_version=$(${docker_cmd} version --format '{{.Server.Version}}')
+  echo -n "Docker is found. Version ${docker_version}"
+  if _cmp_version_le "20.10.0" "${docker_version}"; then
+    echo "... passed"
+  else
+    echo "failed. 20.10.0 or above is required"
+    exit 1
+  fi
+
+  if [[ -z "${docker_compose_cmd}" ]]; then
+    echo "Docker compose is not found" >&2
+    exit 1
+  fi
+  docker_compose_version=$(${docker_compose_cmd} version --short)
+  echo -n "Docker-Compose is found. Version $docker_compose_version "
+  if _cmp_version_le "1.27.1" $docker_compose_version; then
+    echo "... passed"
+  else
+    echo "... failed. 1.27.1 or above is required"
+    exit 1
+  fi
+
+  echo All checks passed.
+}
+
+function _createVols() {
+  mkdir -p ${ECP_DATA_DIR}/postgresql ${ECP_DATA_DIR}/ecp/main ${ECP_DATA_DIR}/datalayers
+  chmod 777 ${ECP_DATA_DIR}/postgresql ${ECP_DATA_DIR}/ecp/main ${ECP_DATA_DIR}/datalayers
+}
+
+function _genDotenv() {
+  rm -f "$cmddir"/.env
+  touch "$cmddir"/.env
+  while IFS= read -r line
+  do
+    eval echo "$line" | envsubst >> "$cmddir"/.env
+  done < "${CONF_FILE}"
+}
+
+function configure() {
+  if [[ ! -f "${CONF_FILE}" ]]; then
+    echo "Failed to read config file ${CONF_FILE}"
+    exit 1
+  fi
+
+  echo -n "Please input EMQX ECP image tag (default: ci-auto-use-tag-instead): "
+  read -r ECP_IMAGE_TAG
+  export ECP_IMAGE_TAG=${ECP_IMAGE_TAG:-"ci-auto-use-tag-instead"}
+
+  echo -n "Please input EMQX ECP docker registry URL (default: ghcr.io): "
+  read -r EMQX_ECP_DOCKER_REGISTRY
+  export EMQX_ECP_DOCKER_REGISTRY=${EMQX_ECP_DOCKER_REGISTRY:-"ghcr.io"}
+
+  if [[ "${EMQX_ECP_DOCKER_REGISTRY}" != "ghcr.io" ]]; then
+      echo -n "Please input EMQX ECP docker registry repo name (default: ""): "
+      read -r EMQX_ECP_DOCKER_REPO
+      export EMQX_ECP_DOCKER_REPO=${EMQX_ECP_DOCKER_REPO:-}
+  else
+      export EMQX_ECP_DOCKER_REPO="emqxecp"
+  fi
+
+  if [[ -n $second_arg && $second_arg == "--show-images" ]]; then
+    _genDotenv
+    echo -e "\n"
+    docker --log-level error compose config --images
+
+    exit 0
+  fi
+
+  echo -n "Please input MQTT external address(which will be used for emqx agent): "
+  read -r MQTT_EXTERNAL_IP
+  export MQTT_EXTERNAL_IP=${MQTT_EXTERNAL_IP:-"mqtt"}
+
+  echo -n "Please input EMQX ECP data volume path (default: $cmddir/datavolumes/): "
+  read -r ECP_DATA_DIR
+  export ECP_DATA_DIR=${ECP_DATA_DIR:-"$cmddir/datavolumes"}
+
+  if [[ ! -d "$ECP_DATA_DIR" ]]; then
+    mkdir -p "$ECP_DATA_DIR"
+  fi
+
+  if [[ $(stat -c %a "$ECP_DATA_DIR") != "777" ]]; then
+    chmod 777 "$ECP_DATA_DIR"
+    if ! _createVols; then
+      echo "Changing directory permission failed. Please manually change the permission as 0777 for $ECP_DATA_DIR then re-run this script"
+      exit 1
+    fi
+  fi
+
+  echo -n "Please input if to start telegraf (yes/no default: no): "
+  read -r TELEGRAF_ENABLED
+
+  echo Generating docker-compose env file ...
+  _genDotenv
+
+  if [[ -n $second_arg && $second_arg == "--download-images" ]]; then
+    echo "Downloading required images..."
+
+    while read -r line; do
+      docker pull "$line"
+    done <<< "$(docker --log-level error compose config --images)"
+  fi
+
+  genEnv
+
+  # Set TELEGRAF_PROXY_PASS and TELEGRAF_ENABLED after genEnv to ensure it's not overridden
+  export TELEGRAF_ENABLED=${TELEGRAF_ENABLED:-"no"}
+  if [ "$TELEGRAF_ENABLED" = "yes" ]; then
+    export TELEGRAF_PROXY_PASS="proxy_pass telegraf:10514;"
+  else
+    export TELEGRAF_PROXY_PASS=""
+  fi
+
+  echo Generating ECP config files ...
+  for fn in $(find "${ECP_CONFIG_TPL_DIR}" -type f | sed "s|${ECP_CONFIG_TPL_DIR}/||g"); do
+    p=$(dirname "$fn")
+    mkdir -p "${ECP_CONFIG_DIR}/$p"
+    if [[ $fn == *.tpl ]]; then
+      echo Generating "${fn%%.tpl}" ...
+      if [[ $fn == */nginx.conf* ]]; then
+        envsubst '${TELEGRAF_PROXY_PASS}' < "${ECP_CONFIG_TPL_DIR}/$fn" > "${ECP_CONFIG_DIR}/${fn%%.tpl}"
+      else
+        envsubst < "${ECP_CONFIG_TPL_DIR}/$fn" > "${ECP_CONFIG_DIR}/${fn%%.tpl}"
+      fi
+      if [[ "$p" == "telegraf" ]]; then
+        chmod 744 "${ECP_CONFIG_DIR}/${fn%%.tpl}"
+      fi
+    else
+      echo Generating "$fn" ...
+      cp "${ECP_CONFIG_TPL_DIR}/$fn" "${ECP_CONFIG_DIR}/$fn"
+    fi
+  done
+
+  echo All configurations are done.
+}
+
+function start() {
+  if [[ ! -f "$cmddir/.env" ]]; then
+    echo "Can not find .env file. Please run '$cmd configure' first"
+    exit 1
+  fi
+  
+  # Load environment variables from .env file
+  set -a
+  source "$cmddir/.env"
+  set +a
+  
+  if [ "${TELEGRAF_ENABLED:-no}" == "yes" ]; then
+    telegraf_profile="--profile telegraf_enabled"
+  else
+    telegraf_profile=""
+  fi
+  ${docker_compose_cmd} -f "$cmddir/docker-compose.yaml" --env-file "$cmddir/.env" ${telegraf_profile} up -d
+}
+
+function stop() {
+  if [[ -f "$cmddir/.env" ]]; then
+    
+    # Load environment variables from .env file
+    set -a
+    source "$cmddir/.env"
+    set +a
+
+    if [ "${TELEGRAF_ENABLED:-no}" == "yes" ]; then
+      telegraf_profile="--profile telegraf_enabled"
+    else
+      telegraf_profile=""
+    fi
+
+    ${docker_compose_cmd} -f "$cmddir/docker-compose.yaml" --env-file "$cmddir/.env" ${telegraf_profile} down
+  fi
+}
+
+function status() {
+  ${docker_compose_cmd} -f "$cmddir/docker-compose.yaml" ps
+}
+
+function create_user() {
+  ${docker_cmd} exec -it emqx-ecp-main /bc/create-init-admin.sh
+}
+
+function removeall() {
+  answer=""
+  while [[ $answer != "y" && $answer != "n" ]]; do
+    echo -n "ALL DATA WILL BE DELETED AND COULD NOT BEING RECOVERED. Confirm? [y/n]: "
+    read -r answer
+  done
+  if [[ $answer == "n" ]]; then
+    exit 0
+  fi
+
+  echo "stopping services"
+  stop
+  echo "deleting configs"
+  rm -fr "$cmddir"/configs/* 1>/dev/null 2>&1
+  rm -f "$cmddir"/.env 1>/dev/null 2>&1
+  echo "deleting data volumes"
+  rm -fr "$cmddir"/datavolumes/* 1>/dev/null 2>&1
+  echo "all data have been removed"
+}
+
+# main
+case $action in
+  start)
+    if [[ -n $second_arg && $second_arg == "--offline" ]]; then
+      echo "You are running in offline mode. Please make sure you have all the required images in your local environment."
+      echo "For example, you can pull required images from the ECP private registry by running the following command:"
+      echo
+      echo "docker pull registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-main"
+      echo
+      echo "Please check the docker-compose.yaml file for the required images and then type 'yes' to proceed."
+
+      while true; do
+        read -p "Do you want to proceed? (yes/no): " yn
+        case $yn in
+          [Yy]* ) echo "You chose yes."; break;;
+          [Nn]* ) echo "You chose no. Exiting."; exit;;
+          * ) echo "Please answer yes or no.";;
+        esac
+      done
+    fi
+
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart)
+    stop 1>/dev/null 2>&1
+    start
+    ;;
+  status)
+    status
+    ;;
+  precheck)
+    precheck
+    ;;
+  configure)
+    configure
+    ;;
+  create-user)
+    create_user
+    ;;
+  remove-all)
+    removeall
+    ;;
+  *)
+    usage
+esac

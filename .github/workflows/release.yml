@@ -220,6 +220,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Copy emqx_ecp_ctl.ghcr
+        run: |
+          cp ./emqx_ecp_ctl.ghcr /tmp/emqx_ecp_ctl.ghcr
       - uses: actions/checkout@v4
         with:
           repository: emqx/EMQX-Business-Critical
@@ -227,7 +230,9 @@ jobs:
           path: ecp-main
           fetch-depth: 0
           token: ${{ steps.generate-token.outputs.token }}
-
+      - name: Copy emqx_ecp_ctl.ghcr
+        run: |
+          cp -f /tmp/emqx_ecp_ctl.ghcr ./ecp-main/deployments/docker-compose/emqx_ecp_ctl
       - name: Set up Go
         id: go
         uses: actions/setup-go@v6.1.0
@@ -268,7 +273,6 @@ jobs:
       - name: Package of docker compose
         working-directory: ./ecp-main/deployments
         run: |
-          cp -f ./scripts/emqx_ecp_ctl.ghcr ./docker-compose/emqx_ecp_ctl
           version=$(echo ${{ github.ref_name }} | sed 's|[/:_]|-|g')
           tar \
             --exclude="docker-compose/.gitingore" \
