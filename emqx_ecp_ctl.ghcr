@@ -126,6 +126,10 @@ function configure() {
       export EMQX_ECP_DOCKER_REPO="emqxecp"
   fi
 
+  echo -n "Please input MQTT external address(which will be used for emqx agent): "
+  read -r MQTT_EXTERNAL_SERVER
+  export MQTT_EXTERNAL_SERVER=${MQTT_EXTERNAL_SERVER:-'{MQTT_EXTERNAL_HOST}:{MQTT_EXTERNAL_PORT}'}
+
   if [[ -n $second_arg && $second_arg == "--show-images" ]]; then
     _genDotenv
     echo -e "\n"
@@ -133,10 +137,6 @@ function configure() {
 
     exit 0
   fi
-
-  echo -n "Please input MQTT external address(which will be used for emqx agent): "
-  read -r MQTT_EXTERNAL_IP
-  export MQTT_EXTERNAL_IP=${MQTT_EXTERNAL_IP:-"mqtt"}
 
   echo -n "Please input EMQX ECP data volume path (default: $cmddir/datavolumes/): "
   read -r ECP_DATA_DIR
