@@ -330,7 +330,8 @@ jobs:
         run: |
           amd64=$(cat ecp-main-digest-amd64/ecp-main-digest.txt)
           arm64=$(cat ecp-main-digest-arm64/ecp-main-digest.txt)
-          for tag in ${{ steps.meta.outputs.tags }}; do
+          readarray -t tags <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${tags[@]}"; do
             docker buildx imagetools create -t "$tag" \
               ghcr.io/emqxecp/ecp-main@${amd64} \
               ghcr.io/emqxecp/ecp-main@${arm64}

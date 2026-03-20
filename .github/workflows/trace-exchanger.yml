@@ -148,7 +148,8 @@ jobs:
         run: |
           amd64=$(cat digests/amd64/trace-exchanger-digest.txt)
           arm64=$(cat digests/arm64/trace-exchanger-digest.txt)
-          for tag in ${{ steps.meta.outputs.tags }}; do
+          readarray -t tags <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${tags[@]}"; do
             docker buildx imagetools create -t "$tag" \
               ghcr.io/emqxecp/trace-exchanger@${amd64} \
               ghcr.io/emqxecp/trace-exchanger@${arm64}
