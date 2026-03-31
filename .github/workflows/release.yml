@@ -10,48 +10,6 @@ on:
       - "*"
 
 jobs:
-  wait:
-    runs-on: ubuntu-slim
-    steps:
-      - name: init wait
-        run: |
-          echo "Waiting for the dependencies build workflow to complete..."
-          sleep 30  # Wait for 3 minutes
-      - name: Wait for the build ecp-ai workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'build ecp-ai'
-          wait-interval: 10
-          allowed-conclusions: success,skipped,cancelled
-
-      - name: Wait for the build trace-exchanger workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'push multi-arch manifest for trace-exchanger'
-          wait-interval: 10
-          allowed-conclusions: success,skipped,cancelled
-
-      - name: Wait for the build emqxee-agent workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'push multi-arch manifests for emqxee-agent images'
-          wait-interval: 10
-          allowed-conclusions: success,skipped,cancelled
-
-      - name: Wait for the build emqx-bc-web workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'push multi-arch manifest for ecp-ui'
-          wait-interval: 10
-          allowed-conclusions: success,skipped,cancelled
   
   docker:
     strategy:
@@ -68,7 +26,6 @@ jobs:
             platform: linux/arm64
             suffix_platform: arm64
     runs-on: ${{ matrix.arch }}
-    needs: wait
     steps:          
       # GitHub App token 有效期固定为1小时，无法修改
       # 如果工作流运行时间超过1小时，需要在使用时重新生成token
