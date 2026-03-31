@@ -95,14 +95,19 @@ jobs:
         context: ecp-ai
     - name: Push image to Aliyun ACR
       run: |
+        # Get the dynamic tag from GHCR (e.g., 2.7.2-alpha.1)
+        ghcr_tag="${{ steps.meta.outputs.tags }}"
+        # Extract just the tag name without registry prefix
+        ghcr_tag_name="${ghcr_tag##*:}"
+
         # Push amd64 image
-        docker pull ghcr.io/emqxecp/ecp-ai:2.7.1-amd64
-        docker tag ghcr.io/emqxecp/ecp-ai:2.7.1-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
+        docker pull ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-amd64
+        docker tag ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
         docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
 
         # Push arm64 image
-        docker pull ghcr.io/emqxecp/ecp-ai:2.7.1-arm64
-        docker tag ghcr.io/emqxecp/ecp-ai:2.7.1-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
+        docker pull ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-arm64
+        docker tag ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
         docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
 
         # Create and push multi-arch manifest

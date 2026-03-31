@@ -242,15 +242,21 @@ jobs:
           done <<< "$tags"
       - name: Push to Aliyun ACR
         run: |
+          # Get the dynamic tag from GHCR (e.g., 2.7.2-alpha.1)
+          ghcr_tag="${{ steps.meta_downloader.outputs.tags }}"
+          # Extract just the tag name without registry prefix
+          ghcr_tag_name="${ghcr_tag##*:}"
+
           # Push ecp-emqx-agent-downloader images
+          # Pull from GHCR using the dynamic tag, push to Aliyun with fixed tag 2.7.1
           # Push amd64 image
-          docker pull ghcr.io/emqxecp/ecp-emqx-agent-downloader:2.7.1-amd64
-          docker tag ghcr.io/emqxecp/ecp-emqx-agent-downloader:2.7.1-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1-amd64
+          docker pull ghcr.io/emqxecp/ecp-emqx-agent-downloader:${ghcr_tag_name}-amd64
+          docker tag ghcr.io/emqxecp/ecp-emqx-agent-downloader:${ghcr_tag_name}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1-amd64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1-amd64
 
           # Push arm64 image
-          docker pull ghcr.io/emqxecp/ecp-emqx-agent-downloader:2.7.1-arm64
-          docker tag ghcr.io/emqxecp/ecp-emqx-agent-downloader:2.7.1-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1-arm64
+          docker pull ghcr.io/emqxecp/ecp-emqx-agent-downloader:${ghcr_tag_name}-arm64
+          docker tag ghcr.io/emqxecp/ecp-emqx-agent-downloader:${ghcr_tag_name}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1-arm64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1-arm64
 
           # Create and push multi-arch manifest for downloader
@@ -260,14 +266,18 @@ jobs:
           docker manifest push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent-downloader:2.7.1
 
           # Push ecp-emqx-agent images
+          # Pull from GHCR using the dynamic tag, push to Aliyun with fixed tag 2.7.1
+          agent_tag="${{ steps.meta_agent.outputs.tags }}"
+          agent_tag_name="${agent_tag##*:}"
+
           # Push amd64 image
-          docker pull ghcr.io/emqxecp/ecp-emqx-agent:2.7.1-amd64
-          docker tag ghcr.io/emqxecp/ecp-emqx-agent:2.7.1-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent:2.7.1-amd64
+          docker pull ghcr.io/emqxecp/ecp-emqx-agent:${agent_tag_name}-amd64
+          docker tag ghcr.io/emqxecp/ecp-emqx-agent:${agent_tag_name}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent:2.7.1-amd64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent:2.7.1-amd64
 
           # Push arm64 image
-          docker pull ghcr.io/emqxecp/ecp-emqx-agent:2.7.1-arm64
-          docker tag ghcr.io/emqxecp/ecp-emqx-agent:2.7.1-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent:2.7.1-arm64
+          docker pull ghcr.io/emqxecp/ecp-emqx-agent:${agent_tag_name}-arm64
+          docker tag ghcr.io/emqxecp/ecp-emqx-agent:${agent_tag_name}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent:2.7.1-arm64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-emqx-agent:2.7.1-arm64
 
           # Create and push multi-arch manifest for agent

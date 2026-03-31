@@ -158,14 +158,17 @@ jobs:
           done
       - name: Push to Aliyun ACR
         run: |
+          # Get the tag from git ref (e.g., 2.7.2-alpha.1)
+          ghcr_tag="${GITHUB_REF##*/}"
+
           # Push amd64 image
-          docker pull ghcr.io/emqxecp/ecp-ui:2.7.1-amd64
-          docker tag ghcr.io/emqxecp/ecp-ui:2.7.1-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
+          docker pull ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-amd64
+          docker tag ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
 
           # Push arm64 image
-          docker pull ghcr.io/emqxecp/ecp-ui:2.7.1-arm64
-          docker tag ghcr.io/emqxecp/ecp-ui:2.7.1-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
+          docker pull ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-arm64
+          docker tag ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
 
           # Create and push multi-arch manifest
