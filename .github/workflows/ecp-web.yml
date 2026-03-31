@@ -75,6 +75,11 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+    - uses: docker/login-action@v3
+      with:
+        registry: registry-intl.cn-shanghai.aliyuncs.com
+        username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+        password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
     - uses: docker/setup-qemu-action@v3
     - uses: docker/setup-buildx-action@v3
     - name: Build and push by digest
@@ -128,6 +133,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - uses: docker/login-action@v3
+        with:
+          registry: registry-intl.cn-shanghai.aliyuncs.com
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
       - uses: actions/download-artifact@v4
         with:
           name: ecp-ui-digest-amd64
@@ -146,3 +156,24 @@ jobs:
               ghcr.io/emqxecp/ecp-ui@${amd64} \
               ghcr.io/emqxecp/ecp-ui@${arm64}
           done
+      - name: Push to Aliyun ACR
+        run: |
+          # Get digest from artifacts
+          amd64=$(cat digests/amd64/ecp-ui-digest.txt)
+          arm64=$(cat digests/arm64/ecp-ui-digest.txt)
+
+          # Pull amd64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/ecp-ui@${amd64}
+          docker tag ghcr.io/emqxecp/ecp-ui@${amd64} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
+          docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
+
+          # Pull arm64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/ecp-ui@${arm64}
+          docker tag ghcr.io/emqxecp/ecp-ui@${arm64} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
+          docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
+
+          # Create and push multi-arch manifest
+          docker manifest create registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1 \
+            registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64 \
+            registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
+          docker manifest push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1
