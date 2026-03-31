@@ -84,6 +84,7 @@ jobs:
         echo "Disk cleanup completed."
     - name: Build image
       uses: docker/build-push-action@v5
+      id: build
       with:
         push: true
         build-args: |
@@ -91,23 +92,23 @@ jobs:
         platforms: linux/amd64,linux/arm64
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        outputs: type=image,name=ghcr.io/emqxecp/ecp-ai,push-by-digest=true,name-canonical=true
         file: ecp-ai/Dockerfile
         context: ecp-ai
     - name: Push image to Aliyun ACR
       run: |
-        # Get the dynamic tag from GHCR (e.g., 2.7.2-alpha.1)
-        ghcr_tag="${{ steps.meta.outputs.tags }}"
-        # Extract just the tag name without registry prefix
-        ghcr_tag_name="${ghcr_tag##*:}"
+        # Extract digest from build output
+        amd64_digest="${{ fromJson(steps.build.outputs.metadata).amd64.digest }}"
+        arm64_digest="${{ fromJson(steps.build.outputs.metadata).arm64.digest }}"
 
-        # Push amd64 image
-        docker pull ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-amd64
-        docker tag ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
+        # Pull amd64 image by digest and push to Aliyun with fixed tag 2.7.1
+        docker pull ghcr.io/emqxecp/ecp-ai@${amd64_digest}
+        docker tag ghcr.io/emqxecp/ecp-ai@${amd64_digest} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
         docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
 
-        # Push arm64 image
-        docker pull ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-arm64
-        docker tag ghcr.io/emqxecp/ecp-ai:${ghcr_tag_name}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
+        # Pull arm64 image by digest and push to Aliyun with fixed tag 2.7.1
+        docker pull ghcr.io/emqxecp/ecp-ai@${arm64_digest}
+        docker tag ghcr.io/emqxecp/ecp-ai@${arm64_digest} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
         docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
 
         # Create and push multi-arch manifest

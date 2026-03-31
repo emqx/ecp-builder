@@ -166,17 +166,18 @@ jobs:
           done
       - name: Push to Aliyun ACR
         run: |
-          # Get the tag from git ref (e.g., 2.7.2-alpha.1)
-          ghcr_tag="${{ steps.customer.outputs.tag }}"
+          # Get digest from artifacts
+          amd64=$(cat digests/amd64/trace-exchanger-digest.txt)
+          arm64=$(cat digests/arm64/trace-exchanger-digest.txt)
 
-          # Push amd64 image
-          docker pull ghcr.io/emqxecp/trace-exchanger:${ghcr_tag}-amd64
-          docker tag ghcr.io/emqxecp/trace-exchanger:${ghcr_tag}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/trace-exchanger:2.7.1-amd64
+          # Pull amd64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/trace-exchanger@${amd64}
+          docker tag ghcr.io/emqxecp/trace-exchanger@${amd64} registry-intl.cn-shanghai.aliyuncs.com/bchub/trace-exchanger:2.7.1-amd64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/trace-exchanger:2.7.1-amd64
 
-          # Push arm64 image
-          docker pull ghcr.io/emqxecp/trace-exchanger:${ghcr_tag}-arm64
-          docker tag ghcr.io/emqxecp/trace-exchanger:${ghcr_tag}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/trace-exchanger:2.7.1-arm64
+          # Pull arm64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/trace-exchanger@${arm64}
+          docker tag ghcr.io/emqxecp/trace-exchanger@${arm64} registry-intl.cn-shanghai.aliyuncs.com/bchub/trace-exchanger:2.7.1-arm64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/trace-exchanger:2.7.1-arm64
 
           # Create and push multi-arch manifest

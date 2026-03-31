@@ -158,17 +158,18 @@ jobs:
           done
       - name: Push to Aliyun ACR
         run: |
-          # Get the tag from git ref (e.g., 2.7.2-alpha.1)
-          ghcr_tag="${GITHUB_REF##*/}"
+          # Get digest from artifacts
+          amd64=$(cat digests/amd64/ecp-ui-digest.txt)
+          arm64=$(cat digests/arm64/ecp-ui-digest.txt)
 
-          # Push amd64 image
-          docker pull ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-amd64
-          docker tag ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-amd64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
+          # Pull amd64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/ecp-ui@${amd64}
+          docker tag ghcr.io/emqxecp/ecp-ui@${amd64} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-amd64
 
-          # Push arm64 image
-          docker pull ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-arm64
-          docker tag ghcr.io/emqxecp/ecp-ui:${ghcr_tag}-arm64 registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
+          # Pull arm64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/ecp-ui@${arm64}
+          docker tag ghcr.io/emqxecp/ecp-ui@${arm64} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
           docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ui:2.7.1-arm64
 
           # Create and push multi-arch manifest
