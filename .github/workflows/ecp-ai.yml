@@ -9,8 +9,20 @@ on:
 jobs:
   build-docker-images:
     name: build ecp-ai
-    runs-on: ubuntu-22.04-arm
+    runs-on: ${{ matrix.arch }}
     permissions: write-all
+    strategy:
+      matrix:
+        arch:
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+        include:
+          - arch: ubuntu-22.04
+            platform: linux/amd64
+            suffix_platform: amd64
+          - arch: ubuntu-22.04-arm
+            platform: linux/arm64
+            suffix_platform: arm64
 
     steps:
     - uses: actions/create-github-app-token@v1
@@ -64,6 +76,11 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+    - uses: docker/login-action@v3
+      with:
+        registry: registry-intl.cn-shanghai.aliyuncs.com
+        username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+        password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
     - uses: docker/setup-qemu-action@v3
     - uses: docker/setup-buildx-action@v3
     - name: Cleanup Disk Space
@@ -77,14 +94,103 @@ jobs:
         sudo rm -rf /var/log/*
         sudo rm -rf /var/cache/*
         echo "Disk cleanup completed."
-    - name: Build image
+    - name: Build and push by digest
+      id: build
       uses: docker/build-push-action@v5
       with:
         push: true
         build-args: |
           GIT_TOKEN=${{ steps.generate-token.outputs.token }}
-        platforms: linux/amd64,linux/arm64
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        platforms: ${{ matrix.platform }}
+        outputs: type=image,name=ghcr.io/emqxecp/ecp-ai,push-by-digest=true,name-canonical=true
+        provenance: false
         file: ecp-ai/Dockerfile
         context: ecp-ai
+    - name: Export digest artifact
+      run: |
+        echo "${{ steps.build.outputs.digest }}" > ecp-ai-digest.txt
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ecp-ai-digest-${{ matrix.suffix_platform }}
+        path: ecp-ai-digest.txt
+
+  manifest-ecp-ai:
+    name: push multi-arch manifest for ecp-ai
+    runs-on: ubuntu-22.04
+    needs: [build-docker-images]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check latest image
+        id: latest
+        run: |
+          echo "latest=false" >> $GITHUB_OUTPUT
+          if echo "${{ github.ref_name }}" |egrep -q "^[0-9].[0-9].[0-9]$"; then
+          echo "latest=true" >> $GITHUB_OUTPUT
+          fi
+      - name: Cusmoter image tag
+        id: customer
+        run: |
+          tag="${GITHUB_REF##*/}"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+      - uses: docker/metadata-action@v4
+        id: meta
+        with:
+          images: ghcr.io/emqxecp/ecp-ai
+          flavor: |
+            latest=${{ steps.latest.outputs.latest }}
+          tags: |
+            type=raw,enable=${{ contains(github.ref_name, 'customer') }},value=${{ steps.customer.outputs.tag }}
+            type=ref,event=branch,enable=${{ !contains(github.ref_name, 'customer') }}
+            type=ref,event=pr,enable=${{ !contains(github.ref_name, 'customer') }}
+            type=ref,event=tag,enable=${{ !contains(github.ref_name, 'customer') }}
+            type=semver,pattern={{version}},enable=${{ !contains(github.ref_name, 'customer') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, 'customer') }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EMQXECP_GIT_TOKEN }}
+      - uses: docker/login-action@v3
+        with:
+          registry: registry-intl.cn-shanghai.aliyuncs.com
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecp-ai-digest-amd64
+          path: digests/amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecp-ai-digest-arm64
+          path: digests/arm64
+      - name: Create and push multi-arch manifest
+        run: |
+          amd64=$(cat digests/amd64/ecp-ai-digest.txt)
+          arm64=$(cat digests/arm64/ecp-ai-digest.txt)
+          readarray -t tags <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${tags[@]}"; do
+            docker buildx imagetools create -t "$tag" \
+              ghcr.io/emqxecp/ecp-ai@${amd64} \
+              ghcr.io/emqxecp/ecp-ai@${arm64}
+          done
+      - name: Push to Aliyun ACR
+        run: |
+          # Get digest from artifacts
+          amd64=$(cat digests/amd64/ecp-ai-digest.txt)
+          arm64=$(cat digests/arm64/ecp-ai-digest.txt)
+
+          # Pull amd64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/ecp-ai@${amd64}
+          docker tag ghcr.io/emqxecp/ecp-ai@${amd64} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
+          docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64
+
+          # Pull arm64 image by digest and push to Aliyun with fixed tag 2.7.1
+          docker pull ghcr.io/emqxecp/ecp-ai@${arm64}
+          docker tag ghcr.io/emqxecp/ecp-ai@${arm64} registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
+          docker push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
+
+          # Create and push multi-arch manifest
+          docker manifest create registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1 \
+            registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-amd64 \
+            registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1-arm64
+          docker manifest push registry-intl.cn-shanghai.aliyuncs.com/bchub/ecp-ai:2.7.1
