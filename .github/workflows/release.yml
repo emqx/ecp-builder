@@ -16,7 +16,34 @@ jobs:
       - name: init wait
         run: |
           echo "Waiting for the dependencies build workflow to complete..."
-          sleep 30  # Wait for 3 minutes
+          sleep 30
+
+      # Wait for build jobs first (they exist as soon as the workflow starts),
+      # then wait for manifest jobs. wait-on-check-action fails immediately with
+      # "never run" if the named check has not been created yet — manifests only
+      # appear after matrix builds finish, so waiting for them alone races.
+
+      - name: Wait for build emqx-bc-web images
+        uses: lewagon/wait-on-check-action@v1.4.1
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-regexp: 'build emqx-bc-web \(ubuntu'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+
+      - name: Allow ecp-ui manifest check to register
+        run: sleep 20
+
+      - name: Wait for push multi-arch manifest for ecp-ui
+        uses: lewagon/wait-on-check-action@v1.4.1
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-name: 'push multi-arch manifest for ecp-ui'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+
       - name: Wait for the build ecp-ai workflow to complete
         uses: lewagon/wait-on-check-action@v1.4.1
         with:
@@ -26,7 +53,19 @@ jobs:
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
-      - name: Wait for the build trace-exchanger workflow to complete
+      - name: Wait for build trace-exchanger images
+        uses: lewagon/wait-on-check-action@v1.4.1
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-regexp: 'build trace-exchanger \(ubuntu'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+
+      - name: Allow trace-exchanger manifest check to register
+        run: sleep 20
+
+      - name: Wait for push multi-arch manifest for trace-exchanger
         uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
@@ -35,7 +74,19 @@ jobs:
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
-      - name: Wait for the build emqxee-agent workflow to complete
+      - name: Wait for build emqxee-agent images
+        uses: lewagon/wait-on-check-action@v1.4.1
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-regexp: 'build emqxee-agent \(ubuntu'
+          wait-interval: 10
+          allowed-conclusions: success,skipped,cancelled
+
+      - name: Allow emqxee-agent manifest check to register
+        run: sleep 20
+
+      - name: Wait for push multi-arch manifests for emqxee-agent images
         uses: lewagon/wait-on-check-action@v1.4.1
         with:
           ref: ${{ github.sha }}
@@ -44,15 +95,6 @@ jobs:
           wait-interval: 10
           allowed-conclusions: success,skipped,cancelled
 
-      - name: Wait for the build emqx-bc-web workflow to complete
-        uses: lewagon/wait-on-check-action@v1.4.1
-        with:
-          ref: ${{ github.sha }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: 'push multi-arch manifest for ecp-ui'
-          wait-interval: 10
-          allowed-conclusions: success,skipped,cancelled
-  
   docker:
     strategy:
       matrix:
