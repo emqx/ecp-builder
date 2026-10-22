@@ -6,6 +6,7 @@ ECP_DATA_DIR=${cmddir}/datavolumes
 ECP_CONFIG_DIR=${cmddir}/configs
 ECP_CONFIG_TPL_DIR=${cmddir}/templates
 TELEGRAF_ENABLED=no
+MQTT_EXTERNAL_PORT=31883
 
 cmd="$(dirname "$(readlink -f "$0")")"
 docker_cmd=$(command -v docker)
@@ -47,7 +48,12 @@ services management actions
 installation actions
   precheck        Pre-check prior to EMQX ECP setup
   configure       Configure DB and EMQX ECP
+                  Options: --show-images | --download-images | --rotate-mfa-key
+                  ECP_MFA_MASTER_KEY is a persistent secret: re-running configure
+                  keeps the existing .env value unless --rotate-mfa-key is set
+                  (or the key is already exported in the shell).
   create-user     Create admin user
+  reset-admin-mfa Reset one local admin MFA without HTTP
 
 destructive actions
   remove-all      Remove all services as well as DATA!!!
@@ -95,7 +101,66 @@ function _createVols() {
   chmod 777 ${ECP_DATA_DIR}/postgresql ${ECP_DATA_DIR}/ecp/main ${ECP_DATA_DIR}/datalayers
 }
 
+# Load ECP_MFA_MASTER_KEY from an existing .env if the shell does not already
+# have it. Used before rewriting .env so re-configure does not rotate the key.
+function _load_mfa_master_key_from_dotenv() {
+  local dotenv="$cmddir/.env"
+  if [[ -n "${ECP_MFA_MASTER_KEY:-}" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$dotenv" ]]; then
+    return 0
+  fi
+  local existing
+  existing=$(grep -E '^[[:space:]]*ECP_MFA_MASTER_KEY=' "$dotenv" | tail -n1 | sed 's/^[[:space:]]*ECP_MFA_MASTER_KEY=//' | sed 's/^"//;s/"$//' | tr -d '\r' || true)
+  if [[ -n "$existing" ]]; then
+    export ECP_MFA_MASTER_KEY="$existing"
+    echo "Reusing ECP_MFA_MASTER_KEY from existing .env"
+  fi
+}
+
+# Ensure ECP_MFA_MASTER_KEY is set: prefer shell env, then existing .env, else
+# generate a 32-byte base64 key. On generation failure fall back to the
+# documented default. Pass rotate=1 (or use configure --rotate-mfa-key) to
+# force a new key; that breaks decryption of already-bound TOTP seeds.
+function _ensure_mfa_master_key() {
+  local rotate="${1:-0}"
+  local default_key="UufNTaAJL7/t85Xiarxsv+gamm01gTCA07zADmwIeBA="
+
+  if [[ "$rotate" == "1" ]]; then
+    unset ECP_MFA_MASTER_KEY
+    echo "Rotating ECP_MFA_MASTER_KEY (--rotate-mfa-key): existing TOTP seeds will not decrypt with the new key"
+  else
+    _load_mfa_master_key_from_dotenv
+    if [[ -n "${ECP_MFA_MASTER_KEY:-}" ]]; then
+      return 0
+    fi
+  fi
+
+  local generated=""
+  if command -v openssl >/dev/null 2>&1; then
+    generated=$(openssl rand -base64 32 2>/dev/null || true)
+  fi
+  if [[ -z "$generated" ]] && [[ -r /dev/urandom ]]; then
+    generated=$(head -c 32 /dev/urandom | base64 2>/dev/null | tr -d '\n' || true)
+  fi
+
+  if [[ -n "$generated" ]]; then
+    export ECP_MFA_MASTER_KEY="$generated"
+    echo "Generated ECP_MFA_MASTER_KEY"
+  else
+    export ECP_MFA_MASTER_KEY="$default_key"
+    echo "Warning: failed to generate ECP_MFA_MASTER_KEY, using default value"
+  fi
+}
+
 function _genDotenv() {
+  local rotate=0
+  if [[ "${1:-}" == "--rotate-mfa-key" ]] || [[ "${second_arg:-}" == "--rotate-mfa-key" ]]; then
+    rotate=1
+  fi
+  # Preserve any existing key before deleting .env (unless rotating).
+  _ensure_mfa_master_key "$rotate"
   rm -f "$cmddir"/.env
   touch "$cmddir"/.env
   while IFS= read -r line
@@ -126,6 +191,19 @@ function configure() {
       export EMQX_ECP_DOCKER_REPO="emqxecp"
   fi
 
+  echo -n "Please input MQTT external address(which will be used for emqx agent) (default: mqtt:31883): "
+  read -r MQTT_EXTERNAL_SERVER
+  if [[ -z "$MQTT_EXTERNAL_SERVER" ]]; then
+    export MQTT_EXTERNAL_IP=mqtt
+    export MQTT_EXTERNAL_PORT="${MQTT_EXTERNAL_PORT}"
+  elif [[ "$MQTT_EXTERNAL_SERVER" == *:* ]]; then
+    export MQTT_EXTERNAL_IP="${MQTT_EXTERNAL_SERVER%%:*}"
+    export MQTT_EXTERNAL_PORT="${MQTT_EXTERNAL_SERVER#*:}"
+  else
+    export MQTT_EXTERNAL_IP="$MQTT_EXTERNAL_SERVER"
+    export MQTT_EXTERNAL_PORT="${MQTT_EXTERNAL_PORT}"
+  fi
+
   if [[ -n $second_arg && $second_arg == "--show-images" ]]; then
     _genDotenv
     echo -e "\n"
@@ -133,10 +211,6 @@ function configure() {
 
     exit 0
   fi
-
-  echo -n "Please input MQTT external address(which will be used for emqx agent): "
-  read -r MQTT_EXTERNAL_IP
-  export MQTT_EXTERNAL_IP=${MQTT_EXTERNAL_IP:-"mqtt"}
 
   echo -n "Please input EMQX ECP data volume path (default: $cmddir/datavolumes/): "
   read -r ECP_DATA_DIR
@@ -246,6 +320,10 @@ function create_user() {
   ${docker_cmd} exec -it emqx-ecp-main /bc/create-init-admin.sh
 }
 
+function reset_admin_mfa() {
+  ${docker_cmd} exec -it emqx-ecp-main /bc/reset-admin-mfa.sh
+}
+
 function removeall() {
   answer=""
   while [[ $answer != "y" && $answer != "n" ]]; do
@@ -307,6 +385,9 @@ case $action in
     ;;
   create-user)
     create_user
+    ;;
+  reset-admin-mfa)
+    reset_admin_mfa
     ;;
   remove-all)
     removeall
