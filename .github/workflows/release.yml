@@ -367,6 +367,7 @@ jobs:
           cd deployments/docker-compose
           echo 'images<<EOF' >> $GITHUB_OUTPUT
           while read -r image; do
+            [ -z "$image" ] && continue
             # 排除指定镜像
             if [[ "$image" =~ (trace-exchanger|ecp-emqx-agent-downloader|ecp-emqx-agent|ecp-ai|ecp-main|ecp-ui) ]]; then
               continue
@@ -382,27 +383,29 @@ jobs:
           password: ${{ secrets.EMQXECP_GIT_TOKEN }}
       - name: Push dependency images to ghcr.io
         run: |
-          while read -r image; do
+          images="${{ steps.get-dependency-images.outputs.images }}"
+          while IFS= read -r image; do
+            [ -z "$image" ] && continue
             name="${image%%:*}"  # 提取镜像名（不含tag）
             tag="${image##*:}"   # 提取原始tag
             basename="${name##*/}"  # 提取不带仓库路径的镜像名
 
             # 拉取 amd64 架构的镜像并打标签
-            docker pull --platform linux/amd64 $image
-            docker tag $image ghcr.io/emqxecp/$basename:$tag-amd64
-            docker push ghcr.io/emqxecp/$basename:$tag-amd64
+            docker pull --platform linux/amd64 "$image"
+            docker tag "$image" "ghcr.io/emqxecp/$basename:$tag-amd64"
+            docker push "ghcr.io/emqxecp/$basename:$tag-amd64"
 
             # 拉取 arm64 架构的镜像并打标签
-            docker pull --platform linux/arm64 $image
-            docker tag $image ghcr.io/emqxecp/$basename:$tag-arm64
-            docker push ghcr.io/emqxecp/$basename:$tag-arm64
+            docker pull --platform linux/arm64 "$image"
+            docker tag "$image" "ghcr.io/emqxecp/$basename:$tag-arm64"
+            docker push "ghcr.io/emqxecp/$basename:$tag-arm64"
 
             # 创建并推送多架构manifest，使用原始tag
-            docker manifest create ghcr.io/emqxecp/$basename:$tag \
-              ghcr.io/emqxecp/$basename:$tag-amd64 \
-              ghcr.io/emqxecp/$basename:$tag-arm64
-            docker manifest push ghcr.io/emqxecp/$basename:$tag
-          done <<< "${{ steps.get-dependency-images.outputs.images }}"
+            docker manifest create "ghcr.io/emqxecp/$basename:$tag" \
+              "ghcr.io/emqxecp/$basename:$tag-amd64" \
+              "ghcr.io/emqxecp/$basename:$tag-arm64"
+            docker manifest push "ghcr.io/emqxecp/$basename:$tag"
+          done <<< "$images"
 
 
   release:
